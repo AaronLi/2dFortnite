@@ -1,0 +1,159 @@
+syntax = "proto3";
+package fortniteservice;
+
+import "google/protobuf/empty.proto";
+
+option go_package = "proto/2dfortnite.proto;fortnite";
+
+service FortniteService {
+    // transmit the player's info and receive other player info
+    rpc RegisterPlayer(RegisterPlayerRequest) returns (RegisterPlayerResponse);
+    rpc WorldState(PlayerId) returns (stream WorldStateResponse); // expensive snapshot of entire game world
+    rpc PlayerStream(stream Player) returns (stream Player);
+    rpc ProjectileInfo(PlayerId) returns (stream Projectile);
+
+    rpc DoAction(DoActionRequest) returns (DoActionResponse);
+}
+
+message DoActionRequest {}
+
+message DoActionResponse{}
+
+message RegisterPlayerRequest {
+    string name = 1;
+    uint64 skin = 2;
+}
+
+message RegisterPlayerResponse {
+    uint64 id = 1;
+}
+
+message PlayerId{
+    uint64 id = 1;
+}
+
+enum ItemType {
+    MATERIAL = 0;
+    CONSUMABLE = 1;
+    AMMO = 2;
+    WEAPON = 3;
+}
+
+enum Material{
+    WOOD = 0;
+    BRICK = 1;
+    METAL = 2;
+}
+
+
+
+enum Consumable {
+    BANDAGES = 0;
+    MEDKIT = 1;
+
+    SMALL_SHIELD_POTION = 2;
+    LARGE_SHIELD_POTION = 3;
+
+    CHUG_JUG = 4;
+}
+
+enum Ammo {
+    SHOTGUN_AMMO = 0;
+    ASSAULT_RIFLE_AMMO = 1;
+    SMG_AMMO = 2;
+    PISTOL_AMMO = 3;
+    ROCKET_LAUNCHER_AMMO = 4;
+}
+
+enum Weapon {
+    PUMP_SHOTGUN = 0;
+    ASSAULT_RIFLE = 1;
+    SMG = 2;
+    PISTOL = 3;
+    ROCKET_LAUNCHER = 4;
+}
+
+enum Rarity{
+    COMMON = 0;
+    UNCOMMON = 1;
+    RARE = 2;
+    EPIC = 3;
+    LEGENDARY = 4;
+}
+
+message WorldItem {
+    uint64 id = 1;
+    NetworkPosition pos = 2; // velocity is probably always 0
+    ItemType item_type = 3;
+    oneof item_data {
+        Material material = 4;
+        Consumable consumable = 5;
+        Ammo ammo = 6;
+        Weapon weapon = 7;
+    }
+    Rarity item_rarity = 8;
+    uint32 stack_size = 9; // weapon stack size is number of ammo in mag
+}
+
+message WorldWall {
+    uint64 id = 1;
+    int64 x = 2;
+    int64 y = 3;
+    uint32 health = 4;
+    uint32 orientation = 5;
+    Material material = 6;
+}
+
+message WorldStateResponse {
+    repeated WorldItem items = 1;
+    repeated WorldWall walls = 2;
+    repeated Player players = 3;
+    repeated Projectile projectiles = 4;
+}
+
+message NetworkPosition {
+    // Everything required to render an object between packets
+    double x = 1;
+    double y = 2;
+    double vX = 3;
+    double vY = 4;
+}
+
+message InventorySlot {
+    ItemType item = 1;
+    oneof item_data {
+        Consumable consumable = 2;
+        Weapon weapon = 3;
+    }
+    uint32 stack_size = 4;
+    Rarity rarity = 5;
+}
+
+message ResourceStack {
+    ItemType item = 1;
+    oneof item_data {
+        Material material = 2;
+        Ammo ammo = 3;
+    }
+    uint32 stack_size = 4;
+}
+
+message Player {
+    uint64 id = 1;
+    uint64 skin = 2;
+    uint64 weapon = 3;
+    uint32 health = 4; // 0 for all players but the local player
+    uint32 shields = 5; // 0 for all players but the local player
+    NetworkPosition position = 6;
+    double rotation = 7;
+    repeated InventorySlot inventory = 8;
+    repeated ResourceStack resources = 9;
+    
+}
+
+message Projectile {
+    uint64 id = 1;
+    NetworkPosition position = 2;
+    uint32 damage = 3;
+    uint32 life = 4;
+}
