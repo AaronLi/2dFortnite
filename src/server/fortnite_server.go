@@ -1,27 +1,80 @@
 package main
 import (
+	empty "github.com/golang/protobuf/ptypes/empty"
 	pb "2dFortnite/proto"
 	"2dFortnite/pkg/shared"
+	"context"
+	"math/rand"
+	"math"
+	"errors"
 )
 
 type FortniteServer struct{
 	pb.UnimplementedFortniteServiceServer
 
-	players map[uint64]pb.Player
+	players map[uint64]*pb.Player
 
 	walls map[uint64]pb.WorldWall
 
 	items map[uint64]pb.WorldItem
 
 	projectiles map[uint64]pb.Projectile
+
+	connections map[uint64]*ClientConnection
+
+	queuedActions chan *pb.DoActionRequest
+}
+
+type ClientConnection struct{
+	connection *pb.FortniteService_WorldStateServer
+	errorChannel chan error
+}
+
+func (s *FortniteServer) RegisterPlayer(ctx context.Context, in *pb.RegisterPlayerRequest) (*pb.RegisterPlayerResponse, error){
+	if len(s.players) >= fortnite.MAX_PLAYERS {
+		return nil, errors.New("Server is full")
+	}
+
+	player := pb.Player{
+		Id: rand.Uint64(),
+		Skin: in.Skin,
+		Position: &pb.NetworkPosition{
+			X: 0,
+			Y: 0,
+			VX: 0,
+			VY: 0,
+		},
+		Health: 100,
+	}
+
+	s.players[player.Id] = &player
+	return &pb.RegisterPlayerResponse{
+		Id: player.Id,
+	}, nil
+}
+
+func (s *FortniteServer) WorldState(player *pb.PlayerId, response_channel pb.FortniteService_WorldStateServer) error{
+	client_connection := &ClientConnection{
+		connection: &response_channel,
+		errorChannel: make(chan error),
+	}
+	s.connections[player.Id] = client_connection
+	return <- client_connection.errorChannel
+}
+
+func (s *FortniteServer) DoAction(request *pb.DoActionRequest) (*empty.Empty, error){
+	// add action to queue
+	s.queuedActions <- request
+	return &empty.Empty{}, nil
 }
 
 func NewFortniteServer() *FortniteServer{
 	return &FortniteServer{
-		players: make(map[uint64]pb.Player),
+		players: make(map[uint64]*pb.Player),
 		walls: make(map[uint64]pb.WorldWall),
 		items: make(map[uint64]pb.WorldItem),
 		projectiles: make(map[uint64]pb.Projectile),
+		queuedActions: make(chan *pb.DoActionRequest, 128),
 	}
 }
 
@@ -31,6 +84,45 @@ func (s *FortniteServer) StartServer(){
 
 func (server *FortniteServer) updateWorld(){
 	// step the world forward
+
+	// process actions
+	for i := len(server.queuedActions); i > 0; i-- {
+		action := <- server.queuedActions
+
+		switch action.ActionType {
+			case pb.ActionType_PICKUP_ITEM:
+
+			case pb.ActionType_DROP_ITEM:      
+
+			case pb.ActionType_MOVE_PLAYER:
+				// Update player's velocity
+				// clamp requested velocity to max speed
+				moveRequest := action.GetMovePlayer()
+
+				requestMagnitude := math.Hypot(moveRequest.Vx, moveRequest.Vy)
+
+				moveMagnitude := math.Min(requestMagnitude, fortnite.MAX_SPEED)
+
+				server.players[action.PlayerId.Id].Position.VX = moveMagnitude * moveRequest.Vx/ requestMagnitude
+				server.players[action.PlayerId.Id].Position.VY = moveMagnitude * moveRequest.Vy / requestMagnitude
+				server.players[action.PlayerId.Id].Rotation = moveRequest.Facing
+			case pb.ActionType_SHOOT_PROJECTILE:
+
+			case pb.ActionType_BUILD_WALL:
+
+			case pb.ActionType_USE_ITEM:
+			
+			case pb.ActionType_SWAP_ITEM:
+			case pb.ActionType_SELECT_ITEM:
+				// select item if possible
+				selectItemRequest := action.GetSelectItem()
+
+				if selectItemRequest.SlotNumber < fortnite.MAX_INVENTORY_SIZE {
+					server.players[action.PlayerId.Id].EquippedSlot = selectItemRequest.SlotNumber
+				}
+		}
+	}
+
 	// move players
 	for _, player := range server.players {
 		player.Position.X += player.Position.VX
@@ -58,31 +150,57 @@ func (server *FortniteServer) updateWorld(){
 
 
 	for k, player := range server.players{
-		playerGridPositions[int64(player.Position.Y/fortnite.WALL_GRID_SIZE)][int64(player.Position.X/fortnite.WALL_GRID_SIZE)][k] = &player
+		playerGridPositions[int64(player.Position.Y/fortnite.WALL_GRID_SIZE)][int64(player.Position.X/fortnite.WALL_GRID_SIZE)][k] = player
 	}
 
 	for k, wall := range server.walls {
 		wallGridPositions[wall.Y][wall.X][k] = &wall
 	}
 
+	deaths := make([]uint64, 0)
+	walls_broken := make([]uint64, 0)
+
 	for projectileUUID, projectile := range server.projectiles{
-		projectile_center_x := int(projectile.Position.X/fortnite.WALL_GRID_SIZE)
-		projectile_center_y := int(projectile.Position.Y/fortnite.WALL_GRID_SIZE)
+		projectile_center_x := int64(projectile.Position.X/fortnite.WALL_GRID_SIZE)
+		projectile_center_y := int64(projectile.Position.Y/fortnite.WALL_GRID_SIZE)
 
 		// check 3x3 centered on projectile for collisions
-		for y_off := -1; y_off <= 1; y_off++{
-			for x_off := -1; x_off <= 1; x_off++{
-				for uuid, player := range playerGridPositions[int64(projectile_center_y + y_off)][int64(projectile_center_x+x_off)] {
+		for y_off := int64(-1); y_off <= 1; y_off++{
+			for x_off := int64(-1); x_off <= 1; x_off++{
+				check_y := projectile_center_y + y_off
+				check_x := projectile_center_x+x_off
+				for uuid, player := range playerGridPositions[check_y][check_x] {
 					if server.collidesPlayer(projectileUUID, uuid) {
 						if player.Health > projectile.Damage {
 							player.Health -= projectile.Damage
 						}else{
 							player.Health = 0
+							deaths = append(deaths, uuid)
+						}
+					}
+				}
+
+				for uuid, wall := range wallGridPositions[check_y][check_x] {
+					if server.collidesWall(projectileUUID, uuid) {
+						if wall.Health > projectile.Damage {
+							wall.Health -= projectile.Damage
+						}else{
+							wall.Health = 0
+							walls_broken = append(walls_broken, uuid)
 						}
 					}
 				}
 			}
 		}
+	}
+
+	// removed destroyed walls and dead players
+	for _, uuid := range deaths {
+		delete(server.players, uuid)
+	}
+
+	for _, uuid := range walls_broken {
+		delete(server.walls, uuid)
 	}
 }
 

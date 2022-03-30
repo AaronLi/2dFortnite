@@ -9,15 +9,83 @@ service FortniteService {
     // transmit the player's info and receive other player info
     rpc RegisterPlayer(RegisterPlayerRequest) returns (RegisterPlayerResponse);
     rpc WorldState(PlayerId) returns (stream WorldStateResponse); // expensive snapshot of entire game world
-    rpc PlayerStream(stream Player) returns (stream Player);
-    rpc ProjectileInfo(PlayerId) returns (stream Projectile);
+    
+    // rpc PlayerStream(stream Player) returns (stream Player); // for faster updates
+    // rpc ProjectileInfo(PlayerId) returns (stream Projectile);
 
-    rpc DoAction(DoActionRequest) returns (DoActionResponse);
+    rpc DoAction(DoActionRequest) returns (google.protobuf.Empty);
 }
 
-message DoActionRequest {}
+enum ActionType{
+    PICKUP_ITEM = 0;
+    DROP_ITEM = 1;
+    MOVE_PLAYER = 2;
+    SHOOT_PROJECTILE = 3;
+    BUILD_WALL = 4;
+    USE_ITEM = 5;
+    SWAP_ITEM = 6;
+    SELECT_ITEM = 7;
+}
 
-message DoActionResponse{}
+message PickupItemRequest{
+    PlayerId player_id = 1;
+    uint64 item_id = 2;
+}
+
+message DropItemRequest{
+    PlayerId player_id = 1;
+    int32 slot_number = 2;
+}
+
+message MovePlayerRequest{
+    PlayerId player_id = 1;
+    double vx = 2;
+    double vy = 3;
+    double facing = 4;
+}
+
+message ShootProjectileRequest{
+    PlayerId player_id = 1;
+    int32 slot_number = 2;
+    double facing = 3;
+}
+
+message BuildWallRequest{
+    PlayerId player_id = 1;
+    int64 x = 2;
+    int64 y = 3;
+    uint32 facing = 4;
+}
+
+message UseItemRequest{ // if item is a weapon, reload it
+    PlayerId player_id = 1;
+    int32 slot_number = 2;
+}
+
+message SwapItemRequest{
+    PlayerId player_id = 1;
+    int32 slot_number = 2;
+    int32 slot_number2 = 3;
+}
+
+message SelectItemRequest{
+    PlayerId player_id = 1;
+    int32 slot_number = 2;
+}
+message DoActionRequest {
+    ActionType action_type = 1;
+    PlayerId player_id = 2;
+    oneof action_data {
+        PickupItemRequest pickup_item = 3;
+        DropItemRequest drop_item = 4;
+        MovePlayerRequest move_player = 5;
+        ShootProjectileRequest shoot_projectile = 6;
+        BuildWallRequest build_wall = 7;
+        UseItemRequest use_item = 8;
+        SwapItemRequest swap_item = 9;
+        SelectItemRequest select_item = 10;
+    }
+}
 
 message RegisterPlayerRequest {
     string name = 1;
@@ -33,10 +101,11 @@ message PlayerId{
 }
 
 enum ItemType {
-    MATERIAL = 0;
-    CONSUMABLE = 1;
-    AMMO = 2;
-    WEAPON = 3;
+    NONE = 0;
+    MATERIAL = 1;
+    CONSUMABLE = 2;
+    AMMO = 3;
+    WEAPON = 4;
 }
 
 enum Material{
@@ -112,7 +181,7 @@ message WorldStateResponse {
 }
 
 message NetworkPosition {
-    // Everything required to render an object between packets
+    // Everything to render an object between packets
     double x = 1;
     double y = 2;
     double vX = 3;
@@ -126,7 +195,9 @@ message InventorySlot {
         Weapon weapon = 3;
     }
     uint32 stack_size = 4;
-    Rarity rarity = 5;
+    uint32 cooldown = 5;
+    uint32 reload = 6;
+    Rarity rarity = 7;
 }
 
 message ResourceStack {
@@ -141,7 +212,7 @@ message ResourceStack {
 message Player {
     uint64 id = 1;
     uint64 skin = 2;
-    uint64 weapon = 3;
+    int32 equipped_slot = 3;
     uint32 health = 4; // 0 for all players but the local player
     uint32 shields = 5; // 0 for all players but the local player
     NetworkPosition position = 6;

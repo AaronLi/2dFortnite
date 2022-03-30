@@ -8,6 +8,7 @@ package fortnite
 
 import (
 	context "context"
+	empty "github.com/golang/protobuf/ptypes/empty"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
@@ -25,9 +26,7 @@ type FortniteServiceClient interface {
 	// transmit the player's info and receive other player info
 	RegisterPlayer(ctx context.Context, in *RegisterPlayerRequest, opts ...grpc.CallOption) (*RegisterPlayerResponse, error)
 	WorldState(ctx context.Context, in *PlayerId, opts ...grpc.CallOption) (FortniteService_WorldStateClient, error)
-	PlayerStream(ctx context.Context, opts ...grpc.CallOption) (FortniteService_PlayerStreamClient, error)
-	ProjectileInfo(ctx context.Context, in *PlayerId, opts ...grpc.CallOption) (FortniteService_ProjectileInfoClient, error)
-	DoAction(ctx context.Context, in *DoActionRequest, opts ...grpc.CallOption) (*DoActionResponse, error)
+	DoAction(ctx context.Context, in *DoActionRequest, opts ...grpc.CallOption) (*empty.Empty, error)
 }
 
 type fortniteServiceClient struct {
@@ -79,71 +78,8 @@ func (x *fortniteServiceWorldStateClient) Recv() (*WorldStateResponse, error) {
 	return m, nil
 }
 
-func (c *fortniteServiceClient) PlayerStream(ctx context.Context, opts ...grpc.CallOption) (FortniteService_PlayerStreamClient, error) {
-	stream, err := c.cc.NewStream(ctx, &FortniteService_ServiceDesc.Streams[1], "/fortniteservice.FortniteService/PlayerStream", opts...)
-	if err != nil {
-		return nil, err
-	}
-	x := &fortniteServicePlayerStreamClient{stream}
-	return x, nil
-}
-
-type FortniteService_PlayerStreamClient interface {
-	Send(*Player) error
-	Recv() (*Player, error)
-	grpc.ClientStream
-}
-
-type fortniteServicePlayerStreamClient struct {
-	grpc.ClientStream
-}
-
-func (x *fortniteServicePlayerStreamClient) Send(m *Player) error {
-	return x.ClientStream.SendMsg(m)
-}
-
-func (x *fortniteServicePlayerStreamClient) Recv() (*Player, error) {
-	m := new(Player)
-	if err := x.ClientStream.RecvMsg(m); err != nil {
-		return nil, err
-	}
-	return m, nil
-}
-
-func (c *fortniteServiceClient) ProjectileInfo(ctx context.Context, in *PlayerId, opts ...grpc.CallOption) (FortniteService_ProjectileInfoClient, error) {
-	stream, err := c.cc.NewStream(ctx, &FortniteService_ServiceDesc.Streams[2], "/fortniteservice.FortniteService/ProjectileInfo", opts...)
-	if err != nil {
-		return nil, err
-	}
-	x := &fortniteServiceProjectileInfoClient{stream}
-	if err := x.ClientStream.SendMsg(in); err != nil {
-		return nil, err
-	}
-	if err := x.ClientStream.CloseSend(); err != nil {
-		return nil, err
-	}
-	return x, nil
-}
-
-type FortniteService_ProjectileInfoClient interface {
-	Recv() (*Projectile, error)
-	grpc.ClientStream
-}
-
-type fortniteServiceProjectileInfoClient struct {
-	grpc.ClientStream
-}
-
-func (x *fortniteServiceProjectileInfoClient) Recv() (*Projectile, error) {
-	m := new(Projectile)
-	if err := x.ClientStream.RecvMsg(m); err != nil {
-		return nil, err
-	}
-	return m, nil
-}
-
-func (c *fortniteServiceClient) DoAction(ctx context.Context, in *DoActionRequest, opts ...grpc.CallOption) (*DoActionResponse, error) {
-	out := new(DoActionResponse)
+func (c *fortniteServiceClient) DoAction(ctx context.Context, in *DoActionRequest, opts ...grpc.CallOption) (*empty.Empty, error) {
+	out := new(empty.Empty)
 	err := c.cc.Invoke(ctx, "/fortniteservice.FortniteService/DoAction", in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -158,9 +94,7 @@ type FortniteServiceServer interface {
 	// transmit the player's info and receive other player info
 	RegisterPlayer(context.Context, *RegisterPlayerRequest) (*RegisterPlayerResponse, error)
 	WorldState(*PlayerId, FortniteService_WorldStateServer) error
-	PlayerStream(FortniteService_PlayerStreamServer) error
-	ProjectileInfo(*PlayerId, FortniteService_ProjectileInfoServer) error
-	DoAction(context.Context, *DoActionRequest) (*DoActionResponse, error)
+	DoAction(context.Context, *DoActionRequest) (*empty.Empty, error)
 	mustEmbedUnimplementedFortniteServiceServer()
 }
 
@@ -174,13 +108,7 @@ func (UnimplementedFortniteServiceServer) RegisterPlayer(context.Context, *Regis
 func (UnimplementedFortniteServiceServer) WorldState(*PlayerId, FortniteService_WorldStateServer) error {
 	return status.Errorf(codes.Unimplemented, "method WorldState not implemented")
 }
-func (UnimplementedFortniteServiceServer) PlayerStream(FortniteService_PlayerStreamServer) error {
-	return status.Errorf(codes.Unimplemented, "method PlayerStream not implemented")
-}
-func (UnimplementedFortniteServiceServer) ProjectileInfo(*PlayerId, FortniteService_ProjectileInfoServer) error {
-	return status.Errorf(codes.Unimplemented, "method ProjectileInfo not implemented")
-}
-func (UnimplementedFortniteServiceServer) DoAction(context.Context, *DoActionRequest) (*DoActionResponse, error) {
+func (UnimplementedFortniteServiceServer) DoAction(context.Context, *DoActionRequest) (*empty.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DoAction not implemented")
 }
 func (UnimplementedFortniteServiceServer) mustEmbedUnimplementedFortniteServiceServer() {}
@@ -235,53 +163,6 @@ func (x *fortniteServiceWorldStateServer) Send(m *WorldStateResponse) error {
 	return x.ServerStream.SendMsg(m)
 }
 
-func _FortniteService_PlayerStream_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(FortniteServiceServer).PlayerStream(&fortniteServicePlayerStreamServer{stream})
-}
-
-type FortniteService_PlayerStreamServer interface {
-	Send(*Player) error
-	Recv() (*Player, error)
-	grpc.ServerStream
-}
-
-type fortniteServicePlayerStreamServer struct {
-	grpc.ServerStream
-}
-
-func (x *fortniteServicePlayerStreamServer) Send(m *Player) error {
-	return x.ServerStream.SendMsg(m)
-}
-
-func (x *fortniteServicePlayerStreamServer) Recv() (*Player, error) {
-	m := new(Player)
-	if err := x.ServerStream.RecvMsg(m); err != nil {
-		return nil, err
-	}
-	return m, nil
-}
-
-func _FortniteService_ProjectileInfo_Handler(srv interface{}, stream grpc.ServerStream) error {
-	m := new(PlayerId)
-	if err := stream.RecvMsg(m); err != nil {
-		return err
-	}
-	return srv.(FortniteServiceServer).ProjectileInfo(m, &fortniteServiceProjectileInfoServer{stream})
-}
-
-type FortniteService_ProjectileInfoServer interface {
-	Send(*Projectile) error
-	grpc.ServerStream
-}
-
-type fortniteServiceProjectileInfoServer struct {
-	grpc.ServerStream
-}
-
-func (x *fortniteServiceProjectileInfoServer) Send(m *Projectile) error {
-	return x.ServerStream.SendMsg(m)
-}
-
 func _FortniteService_DoAction_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(DoActionRequest)
 	if err := dec(in); err != nil {
@@ -320,17 +201,6 @@ var FortniteService_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "WorldState",
 			Handler:       _FortniteService_WorldState_Handler,
-			ServerStreams: true,
-		},
-		{
-			StreamName:    "PlayerStream",
-			Handler:       _FortniteService_PlayerStream_Handler,
-			ServerStreams: true,
-			ClientStreams: true,
-		},
-		{
-			StreamName:    "ProjectileInfo",
-			Handler:       _FortniteService_ProjectileInfo_Handler,
 			ServerStreams: true,
 		},
 	},
