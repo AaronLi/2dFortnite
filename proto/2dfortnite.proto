@@ -194,7 +194,7 @@ message InventorySlot {
         Consumable consumable = 2;
         Weapon weapon = 3;
     }
-    uint32 stack_size = 4;
+    uint32 stack_size = 4; // number of ammo in mag if weapon
     uint32 cooldown = 5;
     uint32 reload = 6;
     Rarity rarity = 7;

@@ -108,6 +108,36 @@ func (server *FortniteServer) updateWorld(){
 				server.players[action.PlayerId.Id].Rotation = moveRequest.Facing
 			case pb.ActionType_SHOOT_PROJECTILE:
 
+				shootWeaponInfo := action.GetShootProjectile()
+				// check if player has weapon equipped
+				// check if player has ammo
+				user := server.players[shootWeaponInfo.PlayerId.Id]
+
+				equippedItem := user.Inventory[user.EquippedSlot]
+				if equippedItem.Item == pb.ItemType_WEAPON {
+					weaponInfo := equippedItem.GetWeapon()
+
+					switch weaponInfo {
+					case pb.Weapon_PISTOL:
+						// create projectile
+						projectile := pb.Projectile{
+							Id: rand.Uint64(),
+							Position: &pb.NetworkPosition{
+								X: user.Position.X,
+								Y: user.Position.Y,
+								VX: math.Cos(user.Rotation) * float64(fortnite.PISTOL_PROJECTILE_SPEED),
+								VY: math.Sin(user.Rotation) * float64(fortnite.PISTOL_PROJECTILE_SPEED),
+							},
+							Damage: fortnite.WeaponDamage[weaponInfo][equippedItem.Rarity],
+							Life: 300,
+						}
+						server.projectiles[projectile.Id] = projectile
+					case pb.Weapon_PUMP_SHOTGUN:
+					case pb.Weapon_SMG:
+					case pb.Weapon_ASSAULT_RIFLE:
+					case pb.Weapon_ROCKET_LAUNCHER:
+					}
+				}
 			case pb.ActionType_BUILD_WALL:
 
 			case pb.ActionType_USE_ITEM:
