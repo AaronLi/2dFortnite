@@ -13,6 +13,10 @@ const (
 	MAX_SPEED = 10.0
 
 	MAX_INVENTORY_SIZE = 5
+
+	PICKUP_RANGE = 5.0
+
+	SERVER_TICKRATE = 30.0
 )
 
 type AmmoLimit uint32
@@ -21,17 +25,15 @@ const (
 	SHOTGUN_AMMO_LIMIT = 5
 	ASSAULT_RIFLE_AMMO_LIMIT = 30
 	SMG_AMMO_LIMIT = 30
-	ROCKET_LAUNCHER_AMMO_LIMIT = 1
 )
 
 type ProjectileSpeed float64
 
 const (
 	PISTOL_PROJECTILE_SPEED ProjectileSpeed = 10.0
-	SHOTGUN_PROJECTILE_SPEED = 10.0
-	ASSAULT_RIFLE_PROJECTILE_SPEED = 10.0
-	SMG_PROJECTILE_SPEED = 10.0
-	ROCKET_LAUNCHER_PROJECTILE_SPEED = 10.0
+	SHOTGUN_PROJECTILE_SPEED = 15.0
+	ASSAULT_RIFLE_PROJECTILE_SPEED = 18.0
+	SMG_PROJECTILE_SPEED = 15.0
 )
 
 
@@ -64,11 +66,24 @@ var WeaponDamage map[pb.Weapon]map[pb.Rarity]uint32 = map[pb.Weapon]map[pb.Rarit
 		pb.Rarity_EPIC: 19,
 		pb.Rarity_LEGENDARY: 20,
 	},
-	pb.Weapon_ROCKET_LAUNCHER: {
-		pb.Rarity_COMMON: 70,
-		pb.Rarity_UNCOMMON: 85,
-		pb.Rarity_RARE: 100,
-		pb.Rarity_EPIC: 115,
-		pb.Rarity_LEGENDARY: 130,
-	},
+}
+
+var WeaponInaccuracy map[pb.Weapon]float64 = map[pb.Weapon]float64{
+	pb.Weapon_PISTOL: 2.0,
+	pb.Weapon_PUMP_SHOTGUN: 6.0,
+	pb.Weapon_ASSAULT_RIFLE: 3.0,
+	pb.Weapon_SMG: 4.0,
+}
+
+var WeaponCooldowns map[pb.Weapon]uint32 = map[pb.Weapon]uint32{
+	pb.Weapon_PISTOL: 3,
+	pb.Weapon_PUMP_SHOTGUN: 10,
+	pb.Weapon_ASSAULT_RIFLE: 2,
+	pb.Weapon_SMG: 1,
+}
+
+var WallHealth map[pb.Material]uint32 = map[pb.Material]uint32{
+	pb.Material_WOOD: 150,
+	pb.Material_BRICK: 300,
+	pb.Material_METAL: 500,
 }

@@ -19,58 +19,54 @@ service FortniteService {
 enum ActionType{
     PICKUP_ITEM = 0;
     DROP_ITEM = 1;
-    MOVE_PLAYER = 2;
-    SHOOT_PROJECTILE = 3;
-    BUILD_WALL = 4;
-    USE_ITEM = 5;
-    SWAP_ITEM = 6;
-    SELECT_ITEM = 7;
+    DROP_RESOURCE = 2;
+    MOVE_PLAYER = 3;
+    SHOOT_PROJECTILE = 4;
+    BUILD_WALL = 5;
+    USE_ITEM = 6;
+    SWAP_ITEM = 7;
+    SELECT_ITEM = 8;
 }
 
 message PickupItemRequest{
-    PlayerId player_id = 1;
-    uint64 item_id = 2;
+    uint64 item_id = 1;
 }
 
 message DropItemRequest{
-    PlayerId player_id = 1;
-    int32 slot_number = 2;
+    int32 slot_number = 1;
+}
+
+message DropResourceRequest{
+    int32 slot_number = 1;
 }
 
 message MovePlayerRequest{
-    PlayerId player_id = 1;
-    double vx = 2;
-    double vy = 3;
-    double facing = 4;
-}
-
-message ShootProjectileRequest{
-    PlayerId player_id = 1;
-    int32 slot_number = 2;
+    double vx = 1;
+    double vy = 2;
     double facing = 3;
 }
 
+message ShootProjectileRequest{
+    double facing = 1;
+}
+
 message BuildWallRequest{
-    PlayerId player_id = 1;
-    int64 x = 2;
-    int64 y = 3;
-    uint32 facing = 4;
+    int64 x = 1;
+    int64 y = 2;
+    uint32 facing = 3;
+    Material material = 4;
 }
 
 message UseItemRequest{ // if item is a weapon, reload it
-    PlayerId player_id = 1;
-    int32 slot_number = 2;
 }
 
 message SwapItemRequest{
-    PlayerId player_id = 1;
-    int32 slot_number = 2;
-    int32 slot_number2 = 3;
+    int32 slot_number = 1;
+    int32 slot_number2 = 2;
 }
 
 message SelectItemRequest{
-    PlayerId player_id = 1;
-    int32 slot_number = 2;
+    int32 slot_number = 1;
 }
 message DoActionRequest {
     ActionType action_type = 1;
@@ -78,12 +74,13 @@ message DoActionRequest {
     oneof action_data {
         PickupItemRequest pickup_item = 3;
         DropItemRequest drop_item = 4;
-        MovePlayerRequest move_player = 5;
-        ShootProjectileRequest shoot_projectile = 6;
-        BuildWallRequest build_wall = 7;
-        UseItemRequest use_item = 8;
-        SwapItemRequest swap_item = 9;
-        SelectItemRequest select_item = 10;
+        DropResourceRequest drop_resource = 5;
+        MovePlayerRequest move_player = 6;
+        ShootProjectileRequest shoot_projectile = 7;
+        BuildWallRequest build_wall = 8;
+        UseItemRequest use_item = 9;
+        SwapItemRequest swap_item = 10;
+        SelectItemRequest select_item = 11;
     }
 }
 
@@ -131,7 +128,6 @@ enum Ammo {
     ASSAULT_RIFLE_AMMO = 1;
     SMG_AMMO = 2;
     PISTOL_AMMO = 3;
-    ROCKET_LAUNCHER_AMMO = 4;
 }
 
 enum Weapon {
@@ -139,7 +135,6 @@ enum Weapon {
     ASSAULT_RIFLE = 1;
     SMG = 2;
     PISTOL = 3;
-    ROCKET_LAUNCHER = 4;
 }
 
 enum Rarity{
@@ -212,13 +207,14 @@ message ResourceStack {
 message Player {
     uint64 id = 1;
     uint64 skin = 2;
-    int32 equipped_slot = 3;
-    uint32 health = 4; // 0 for all players but the local player
-    uint32 shields = 5; // 0 for all players but the local player
-    NetworkPosition position = 6;
-    double rotation = 7;
-    repeated InventorySlot inventory = 8;
-    repeated ResourceStack resources = 9;
+    string name = 3;
+    int32 equipped_slot = 4;
+    uint32 health = 5; // 0 for all players but the local player
+    uint32 shields = 6; // 0 for all players but the local player
+    NetworkPosition position = 7;
+    double rotation = 8;
+    repeated InventorySlot inventory = 9;
+    repeated ResourceStack resources = 10;
     
 }
 

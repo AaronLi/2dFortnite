@@ -3,6 +3,7 @@ package main
 import (
 	"github.com/veandco/go-sdl2/sdl"
 	"github.com/veandco/go-sdl2/gfx"
+	pb "2dFortnite/proto"
 	"os"
 	"sync"
 	"fmt"
@@ -23,7 +24,7 @@ const (
 var rects [NumRects]sdl.Rect
 var runningMutex sync.Mutex
 
-func run() int {
+func run(userInfo *pb.RegisterPlayerRequest, id uint64) int {
 	var window *sdl.Window
 	var renderer *sdl.Renderer
 	var fpsManager gfx.FPSmanager

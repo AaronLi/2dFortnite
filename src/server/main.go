@@ -1,9 +1,9 @@
 package main
 
 func main(){
-	var server FortniteServer
+	var server *FortniteServer
 
-	server = FortniteServer{}
+	server = NewFortniteServer()
 
 	server.StartServer()
 }
