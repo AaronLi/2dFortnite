@@ -18,11 +18,11 @@ type FortniteServer struct{
 
 	players map[uint64]*pb.Player
 
-	walls map[uint64]pb.WorldWall
+	walls map[uint64]*pb.WorldWall
 
-	items map[uint64]pb.WorldItem
+	items map[uint64]*pb.WorldItem
 
-	projectiles map[uint64]pb.Projectile
+	projectiles map[uint64]*pb.Projectile
 
 	connections map[uint64]*ClientConnection
 
@@ -50,7 +50,63 @@ func (s *FortniteServer) RegisterPlayer(ctx context.Context, in *pb.RegisterPlay
 			VY: 0,
 		},
 		Health: 100,
+		Inventory: make([]*pb.InventorySlot, 5),
+		Resources: make([]*pb.ResourceStack, 0),
 	}
+
+	for i := 0; i < 5; i++ {
+		player.Inventory[i] = &pb.InventorySlot{
+		}
+	}
+
+	player.Resources = append(player.Resources, &pb.ResourceStack{
+		Item: pb.ItemType_MATERIAL,
+		ItemData: &pb.ResourceStack_Material{
+			Material: pb.Material_WOOD,
+		},
+	})
+
+	player.Resources = append(player.Resources, &pb.ResourceStack{
+		Item: pb.ItemType_MATERIAL,
+		ItemData: &pb.ResourceStack_Material{
+			Material: pb.Material_BRICK,
+		},
+	})
+
+	player.Resources = append(player.Resources, &pb.ResourceStack{
+		Item: pb.ItemType_MATERIAL,
+		ItemData: &pb.ResourceStack_Material{
+			Material: pb.Material_METAL,
+		},
+	})
+
+	player.Resources = append(player.Resources, &pb.ResourceStack{
+		Item: pb.ItemType_AMMO,
+		ItemData: &pb.ResourceStack_Ammo{
+			Ammo: pb.Ammo_PISTOL_AMMO,
+		},
+	})
+
+	player.Resources = append(player.Resources, &pb.ResourceStack{
+		Item: pb.ItemType_AMMO,
+		ItemData: &pb.ResourceStack_Ammo{
+			Ammo: pb.Ammo_SMG_AMMO,
+		},
+	})
+
+	player.Resources = append(player.Resources, &pb.ResourceStack{
+		Item: pb.ItemType_AMMO,
+		ItemData: &pb.ResourceStack_Ammo{
+			Ammo: pb.Ammo_ASSAULT_RIFLE_AMMO,
+		},
+	})
+
+	player.Resources = append(player.Resources, &pb.ResourceStack{
+		Item: pb.ItemType_AMMO,
+		ItemData: &pb.ResourceStack_Ammo{
+			Ammo: pb.Ammo_SHOTGUN_AMMO,
+		},
+	})
 
 	s.players[player.Id] = &player
 
@@ -79,10 +135,11 @@ func (s *FortniteServer) DoAction(ctx context.Context, request *pb.DoActionReque
 func NewFortniteServer() *FortniteServer{
 	return &FortniteServer{
 		players: make(map[uint64]*pb.Player),
-		walls: make(map[uint64]pb.WorldWall),
-		items: make(map[uint64]pb.WorldItem),
-		projectiles: make(map[uint64]pb.Projectile),
+		walls: make(map[uint64]*pb.WorldWall),
+		items: make(map[uint64]*pb.WorldItem),
+		projectiles: make(map[uint64]*pb.Projectile),
 		queuedActions: make(chan *pb.DoActionRequest, 128),
+		connections: make(map[uint64]*ClientConnection),
 	}
 }
 
@@ -98,13 +155,13 @@ func (s *FortniteServer) StartServer(){
 	pb.RegisterFortniteServiceServer(grpcServer, s)
 
 	log.Printf("Starting server on port 50051")
-	
+	s.populateWorld()
 	terminator := make(chan bool)
+	defer func() {terminator <- true}()
 
 	go s.serverThread(terminator)
 
 	err = grpcServer.Serve(lis)
-	terminator <- true
 
 	if err != nil {	
 		log.Fatalf("failed to serve: %v", err)
@@ -133,28 +190,31 @@ func (server *FortniteServer) transmitState(){
 
 	wallsList := make([]*pb.WorldWall, 0)
 	for _, wall := range server.walls{
-		wallsList = append(wallsList, &wall)
+		wallsList = append(wallsList, wall)
 	}
 
 	itemsList := make([]*pb.WorldItem, 0)
 	for _, item := range server.items{
-		itemsList = append(itemsList, &item)
+		itemsList = append(itemsList, item)
 	}
 
 	projectilesList := make([]*pb.Projectile, 0)
 	for _, projectile := range server.projectiles{
-		projectilesList = append(projectilesList, &projectile)
+		projectilesList = append(projectilesList, projectile)
 	}
 
-	for _, connection := range server.connections{
-		err := (*(connection.connection)).Send(&pb.WorldStateResponse{
-			Players: playersList,
-			Walls: wallsList,
-			Items: itemsList,
-			Projectiles: projectilesList,
-		})
+	worldState := pb.WorldStateResponse{
+		Players: playersList,
+		Walls: wallsList,
+		Items: itemsList,
+		Projectiles: projectilesList,
+	}
+
+	for k, connection := range server.connections{
+		worldState.Player = server.players[k]
+		err := (*(connection.connection)).Send(&worldState)
 		if err != nil {
-			connection.errorChannel <- err
+			delete(server.connections, k)
 		}
 	}
 }
@@ -167,6 +227,7 @@ func (server *FortniteServer) updateWorld(){
 	playerGridPositions := make(map[int64]map[int64]map[uint64]*pb.Player)
 	wallGridPositions := make(map[int64]map[int64]uint64)
 
+	//log.Println("An item position", server.items[0].Pos)
 
 	for k, player := range server.players{
 		gridY := int64(player.Position.Y/fortnite.WALL_GRID_SIZE)
@@ -180,6 +241,16 @@ func (server *FortniteServer) updateWorld(){
 		}
 
 		playerGridPositions[gridY][gridX][k] = player
+
+		// player inventory cooldown
+		for _, item := range player.Inventory{
+			if item.Cooldown > 0 {
+				item.Cooldown--
+			}
+			if item.Reload > 0 {
+				item.Reload--
+			}
+		}
 	}
 
 	for k, wall := range server.walls {
@@ -193,6 +264,7 @@ func (server *FortniteServer) updateWorld(){
 		switch action.ActionType {
 			case pb.ActionType_PICKUP_ITEM:
 				pickupItemRequest := action.GetPickupItem()
+
 				// verify item exists and is in range
 				item, exists := server.items[pickupItemRequest.ItemId]
 				// verify player has inventory space
@@ -220,6 +292,7 @@ func (server *FortniteServer) updateWorld(){
 							// put item in first empty slot
 							for _, slot := range player.Inventory {
 								if slot.Item == pb.ItemType_NONE {
+									log.Println("Direct inventory Distance", distance)
 									slot.Item = item.ItemType
 									slot.Rarity = item.ItemRarity
 									slot.StackSize = item.StackSize
@@ -230,12 +303,21 @@ func (server *FortniteServer) updateWorld(){
 								}
 							}
 							if !pickedUp {
+								log.Println("Distance", distance)
 								// swap with item at currently selected slot
-
+								server.dropItemInventory(player.EquippedSlot, player.Id)
+								
+								player.Inventory[player.EquippedSlot].Item = item.ItemType
+								player.Inventory[player.EquippedSlot].Rarity = item.ItemRarity
+								player.Inventory[player.EquippedSlot].StackSize = item.StackSize
+								player.Inventory[player.EquippedSlot].Cooldown = 0
+								player.Inventory[player.EquippedSlot].Reload =  0
 							}
 						}
+						delete(server.items, pickupItemRequest.ItemId)
 					}
 				}
+				log.Println(server.players[player.Id].Inventory)
 			case pb.ActionType_DROP_ITEM:
 				dropItemRequest := action.GetDropItem() 
 
@@ -250,10 +332,14 @@ func (server *FortniteServer) updateWorld(){
 
 				requestMagnitude := math.Hypot(moveRequest.Vx, moveRequest.Vy)
 
-				moveMagnitude := math.Min(requestMagnitude, fortnite.MAX_SPEED)
-
-				server.players[action.PlayerId.Id].Position.VX = moveMagnitude * moveRequest.Vx/ requestMagnitude
-				server.players[action.PlayerId.Id].Position.VY = moveMagnitude * moveRequest.Vy / requestMagnitude
+				moveMagnitude := math.Min(requestMagnitude, 1.0)
+				if moveMagnitude > 0 {
+					server.players[action.PlayerId.Id].Position.VX = fortnite.MAX_SPEED * moveMagnitude * moveRequest.Vx / requestMagnitude
+					server.players[action.PlayerId.Id].Position.VY = fortnite.MAX_SPEED * moveMagnitude * moveRequest.Vy / requestMagnitude
+				} else{
+					server.players[action.PlayerId.Id].Position.VX = 0
+					server.players[action.PlayerId.Id].Position.VY = 0
+				}
 				server.players[action.PlayerId.Id].Rotation = moveRequest.Facing
 			case pb.ActionType_SHOOT_PROJECTILE:
 
@@ -266,7 +352,7 @@ func (server *FortniteServer) updateWorld(){
 
 				equippedItem := user.Inventory[user.EquippedSlot]
 				if equippedItem.Item == pb.ItemType_WEAPON {
-					if equippedItem.Cooldown == 0 && equippedItem.StackSize > 0{
+					if equippedItem.Cooldown == 0 && equippedItem.Reload == 0 && equippedItem.StackSize > 0{
 						weaponInfo := equippedItem.GetWeapon()
 						switch weaponInfo {
 						case pb.Weapon_PISTOL:
@@ -281,6 +367,7 @@ func (server *FortniteServer) updateWorld(){
 							server.spawnBullet(weaponInfo, equippedItem, user)
 						}
 						equippedItem.StackSize -= 1
+						equippedItem.Cooldown = fortnite.WeaponCooldowns[weaponInfo]
 					}
 				}
 			case pb.ActionType_BUILD_WALL:
@@ -304,6 +391,7 @@ func (server *FortniteServer) updateWorld(){
 									wallGridPositions[buildWallInfo.Y][buildWallInfo.X] = server.buildWall(buildWallInfo, resource)
 									break
 								}
+								resource.StackSize -= 10
 							}
 						}
 					}
@@ -346,6 +434,33 @@ func (server *FortniteServer) updateWorld(){
 							user.Shields = 100
 						}
 					}
+				} else if item.Item == pb.ItemType_WEAPON {
+					// check if weapon is fully loaded
+					// check if reload timer is finished
+					// check if player has enough ammo
+					if item.StackSize < fortnite.WeaponAmmoLimits[item.GetWeapon()] {
+						// weapon not fully loaded
+						if item.Reload <= 0 {
+							// weapon not being reloaded
+							for _, resource := range user.Resources {
+								if resource.Item == pb.ItemType_AMMO {
+									// item is ammo
+									if resource.GetAmmo() == fortnite.WeaponAmmoUsage[item.GetWeapon()] {
+										// correct ammo type for this weapon
+										reloadAmount := fortnite.WeaponAmmoLimits[item.GetWeapon()] - item.StackSize
+										if resource.StackSize < reloadAmount {
+											// player doesn't have enough ammo for full reload
+											reloadAmount = resource.StackSize
+										}
+										item.StackSize += reloadAmount
+										resource.StackSize -= reloadAmount
+										item.Reload = fortnite.WeaponReloadTime[item.GetWeapon()]
+										break
+									}
+								}
+							}
+						}
+					}
 				}
 			case pb.ActionType_SWAP_ITEM:
 				swapItemRequest := action.GetSwapItem()
@@ -365,8 +480,8 @@ func (server *FortniteServer) updateWorld(){
 
 	// move players
 	for _, player := range server.players {
-		player.Position.X += player.Position.VX
-		player.Position.Y += player.Position.VY
+		player.Position.X += player.Position.VX * (1.0 / fortnite.SERVER_TICKRATE)
+		player.Position.Y += player.Position.VY * (1.0 / fortnite.SERVER_TICKRATE)
 	}
 	// process player actions
 	//TODO
@@ -461,7 +576,7 @@ func (server *FortniteServer) dropItemInventory(inventoryIndex int32, player_uui
 			StackSize: itemToDrop.StackSize,
 		}
 	}
-	server.items[worldItem.Id] = worldItem
+	server.items[worldItem.Id] = &worldItem
 	server.players[player_uuid].Inventory[inventoryIndex] = &pb.InventorySlot{}
 }
 
@@ -492,7 +607,7 @@ func (server *FortniteServer) dropItemResource(resourceIndex int32, player_uuid 
 			StackSize: itemToDrop.StackSize,
 		}
 	}
-	server.items[worldItem.Id] = worldItem
+	server.items[worldItem.Id] = &worldItem
 	server.players[player_uuid].Resources[resourceIndex] = &pb.ResourceStack{
 		Item: itemToDrop.Item,
 	}
@@ -505,7 +620,7 @@ func (server *FortniteServer) buildWall(buildWallInfo *pb.BuildWallRequest, reso
 		Y: buildWallInfo.Y,
 		Material: buildWallInfo.Material,
 	}
-	server.walls[wallId] = wall
+	server.walls[wallId] = &wall
 	resource.StackSize -= 10
 	return wallId
 }
@@ -524,7 +639,7 @@ func (server *FortniteServer) spawnBullet(weaponInfo pb.Weapon, equippedItem *pb
 		Damage: fortnite.WeaponDamage[weaponInfo][equippedItem.Rarity],
 		Life: 300,
 	}
-	server.projectiles[projectile.Id] = projectile
+	server.projectiles[projectile.Id] = &projectile
 
 	equippedItem.Cooldown = fortnite.WeaponCooldowns[weaponInfo]
 }
@@ -545,4 +660,54 @@ func (server *FortniteServer) collidesWall(projectileUUID uint64, wallUUID uint6
 
 	// line (projectile + velocity) intersects line (wall)
 	panic("Not implemented")
+}
+
+func (server *FortniteServer) populateWorld(){
+	for i := 0; i < 100; i++ {
+		// spawn weapons
+		var worldItem pb.WorldItem
+		worldItem.Id = rand.Uint64()
+		worldItem.Pos = &pb.NetworkPosition{
+			X: fortnite.MIN_WORLD_X + rand.Float64() * float64(fortnite.MAX_WORLD_X - fortnite.MIN_WORLD_X),
+			Y: fortnite.MIN_WORLD_Y + rand.Float64() * float64(fortnite.MAX_WORLD_Y - fortnite.MIN_WORLD_Y),
+		}
+
+		worldItem.ItemType = pb.ItemType_WEAPON
+
+		worldItem.ItemData = &pb.WorldItem_Weapon{
+			Weapon: server.intToWeapon(rand.Intn(4)),
+		}
+		worldItem.ItemRarity = server.intToRarity(rand.Intn(4))
+
+		worldItem.StackSize = fortnite.WeaponAmmoLimits[worldItem.GetWeapon()]
+		server.items[worldItem.Id] = &worldItem
+	}
+}
+
+func (server *FortniteServer) intToWeapon(w int) pb.Weapon {
+	switch w {
+	case 0:
+		return pb.Weapon_ASSAULT_RIFLE
+	case 1:
+		return pb.Weapon_PISTOL
+	case 2:
+		return pb.Weapon_PUMP_SHOTGUN
+	case 3:
+		return pb.Weapon_SMG
+	}
+	return pb.Weapon_PISTOL
+}
+
+func (server *FortniteServer) intToRarity(r int) pb.Rarity {
+	switch r {
+	case 0:
+		return pb.Rarity_COMMON
+	case 1:
+		return pb.Rarity_UNCOMMON
+	case 2:
+		return pb.Rarity_RARE
+	case 3:
+		return pb.Rarity_EPIC
+	}
+	return pb.Rarity_COMMON
 }

@@ -4,10 +4,12 @@ import (
 	"github.com/veandco/go-sdl2/sdl"
 	"github.com/veandco/go-sdl2/gfx"
 	pb "2dFortnite/proto"
+	"2dFortnite/pkg/shared"
+	"context"
 	"os"
+	"log"
 	"sync"
 	"fmt"
-	"math/rand"
 )
 
 const (
@@ -20,15 +22,27 @@ const (
 	RectHeight = 40
 	NumRects = WindowHeight / RectHeight
 )
-
-var rects [NumRects]sdl.Rect
 var runningMutex sync.Mutex
 
-func run(userInfo *pb.RegisterPlayerRequest, id uint64) int {
+func run(userInfo *pb.RegisterPlayerRequest, id uint64, client *pb.FortniteServiceClient) int {
 	var window *sdl.Window
 	var renderer *sdl.Renderer
 	var fpsManager gfx.FPSmanager
 	var err error
+	var currentWorldState *pb.WorldStateResponse
+
+	inputManagerCommands := make(chan *pb.DoActionRequest)
+
+	inputManager := NewInputManager(inputManagerCommands, id)
+
+	worldUpdateChan := make(chan *pb.WorldStateResponse)
+
+	go readWorldUpdates(id, client, worldUpdateChan)
+	go inputManager.Run()
+
+	if err != nil {
+		panic(err)
+	}
 
 	sdl.Do(func() {
 		window, err = sdl.CreateWindow(WindowTitle, sdl.WINDOWPOS_UNDEFINED, sdl.WINDOWPOS_UNDEFINED, WindowWidth, WindowHeight, sdl.WINDOW_OPENGL)
@@ -64,16 +78,7 @@ func run(userInfo *pb.RegisterPlayerRequest, id uint64) int {
 	sdl.Do(func() {
 		renderer.Clear()
 	})
-
-	for i := range rects {
-		rects[i] = sdl.Rect{
-			X: int32(rand.Int() % WindowWidth),
-			Y: int32(i * WindowHeight / len(rects)),
-			W: RectWidth,
-			H: RectHeight,
-		}
-	}
-
+	var oldMb uint32= 0 // old mouse button state
 	running := true
 	for running {
 		sdl.Do(func() {
@@ -83,23 +88,124 @@ func run(userInfo *pb.RegisterPlayerRequest, id uint64) int {
 					runningMutex.Lock()
 					running = false
 					runningMutex.Unlock()
+				case *sdl.KeyboardEvent:
+					inputManager.KeyEvent(int(event.(*sdl.KeyboardEvent).Keysym.Sym), event.(*sdl.KeyboardEvent).Type)
+				case *sdl.MouseWheelEvent:
+					inputManager.MouseWheelEvent(event.(*sdl.MouseWheelEvent).Y, currentWorldState.Player.EquippedSlot)
 				}
 			}
-
 			renderer.Clear()
-			renderer.SetDrawColor(18, 151, 204, 0x20)
+			renderer.SetDrawColor(66, 66, 66, 0xFF)
 			renderer.FillRect(&sdl.Rect{0, 0, WindowWidth, WindowHeight})
 		})
+		mX, mY, mB := sdl.GetMouseState()
+		select {
+		case worldUpdate := <-worldUpdateChan:
+			currentWorldState = worldUpdate
+		default:
+		}
 
-		// Do expensive stuff using goroutines
+		select {
+		case input := <-inputManagerCommands:
+			_, err := (*client).DoAction(context.Background(), input)
+			if err != nil {
+				panic(err)
+			}
+		default:
+		}
+		// Draw game world
 		wg := sync.WaitGroup{}
-		for i := range rects {
+		for i := range currentWorldState.Players {
 			wg.Add(1)
 			go func(i int) {
-				rects[i].X = (rects[i].X + 10) % WindowWidth
 				sdl.Do(func() {
 					renderer.SetDrawColor(0xff, 0xff, 0xff, 0xff)
-					renderer.DrawRect(&rects[i])
+					renderer.DrawRect(&sdl.Rect{
+						X: int32(WindowWidth/2 + currentWorldState.Players[i].Position.X - currentWorldState.Player.Position.X),
+						Y: int32(WindowHeight/2 + currentWorldState.Players[i].Position.Y - currentWorldState.Player.Position.Y),
+						W: 10,
+						H: 10,
+					})
+					currentWorldState.Players[i].Position.X += currentWorldState.Players[i].Position.VX * (1.0 / fortnite.SERVER_TICKRATE) * (fortnite.SERVER_TICKRATE / float64(FrameRate))
+					currentWorldState.Players[i].Position.Y += currentWorldState.Players[i].Position.VY * (1.0 / fortnite.SERVER_TICKRATE) * (fortnite.SERVER_TICKRATE / float64(FrameRate))
+				})
+				wg.Done()
+			}(i)
+		}
+
+		for i := range currentWorldState.Items {
+			wg.Add(1)
+			go func(i int) {
+				sdl.Do(func() {
+					color := fortnite.RarityColours[currentWorldState.Items[i].ItemRarity]
+						renderer.SetDrawColor(color.R, color.G, color.B, color.A)
+					
+					itemRect := sdl.Rect{
+						X: int32(WindowWidth/2 + currentWorldState.Items[i].Pos.X - currentWorldState.Player.Position.X),
+						Y: int32(WindowHeight/2 + currentWorldState.Items[i].Pos.Y - currentWorldState.Player.Position.Y),
+						W: 25,
+						H: 10,
+					}
+
+					renderer.DrawRect(&itemRect)
+
+					if itemRect.IntersectLine(&mX, &mY, &mX, &mY) {
+						renderer.SetDrawColor(255, 0, 0, 0xff)
+						itemRect.X -= 3
+						itemRect.Y -= 3
+						itemRect.W += 6
+						itemRect.H += 6
+						renderer.DrawRect(&itemRect)
+						if mB == 1 && oldMb == 0 {
+							(*client).DoAction(context.Background(), &pb.DoActionRequest{
+								ActionType: pb.ActionType_PICKUP_ITEM,
+								PlayerId: &pb.PlayerId{Id: id},
+								ActionData: &pb.DoActionRequest_PickupItem{
+									PickupItem: &pb.PickupItemRequest{
+										ItemId: currentWorldState.Items[i].Id,
+									},
+								},
+							})
+						}
+					}
+				})
+				wg.Done()
+			}(i)
+		}
+		wg.Wait()
+
+		// draw UI
+
+		for i := range currentWorldState.Player.Inventory {
+			wg.Add(1)
+			go func(i int) {
+				sdl.Do(func() {
+					inventoryInfo := currentWorldState.Player.Inventory[i]
+					if currentWorldState.Player.EquippedSlot == int32(i) {
+						renderer.SetDrawColor(255, 100, 100, 0xff)
+					} else{
+						renderer.SetDrawColor(200, 200, 200, 0xff)
+					}
+					
+
+					itemRect := sdl.Rect{
+						X: int32(WindowWidth - (55 * 5) - 5 + 55 * i),
+						Y: int32(WindowHeight- 60),
+						W: 50,
+						H: 50,
+					}
+
+					renderer.DrawRect(&itemRect)
+					if inventoryInfo.Item != pb.ItemType_NONE {
+						color := fortnite.RarityColours[inventoryInfo.Rarity]
+						renderer.SetDrawColor(color.R, color.G, color.B, color.A)
+						renderer.FillRect(&sdl.Rect{
+							X: int32(WindowWidth - (55 * 5) - 5 + 55 * i + 3),
+							Y: int32(WindowHeight- 60 + 3),
+							W: 44,
+							H: 44,
+						})
+					}
 				})
 				wg.Done()
 			}(i)
@@ -110,7 +216,28 @@ func run(userInfo *pb.RegisterPlayerRequest, id uint64) int {
 			renderer.Present()
 			gfx.FramerateDelay(&fpsManager)
 		})
+		oldMb = mB
 	}
 
 	return 0
+}
+
+func readWorldUpdates(id uint64, client *pb.FortniteServiceClient, worldUpdates chan *pb.WorldStateResponse) {
+	worldInfo, err := (*client).WorldState(context.Background(), &pb.PlayerId{
+		Id: id,
+	})
+
+	if err != nil {
+		log.Println("Failed to get world state:", err)
+		return
+	}
+
+	for {
+		response, err := worldInfo.Recv()
+		if err != nil {
+			log.Println("Error receiving world state:", err)
+			return
+		}
+		worldUpdates <- response
+	}
 }

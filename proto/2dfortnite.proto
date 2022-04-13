@@ -169,10 +169,11 @@ message WorldWall {
 }
 
 message WorldStateResponse {
-    repeated WorldItem items = 1;
-    repeated WorldWall walls = 2;
-    repeated Player players = 3;
-    repeated Projectile projectiles = 4;
+    Player player = 1;
+    repeated WorldItem items = 2;
+    repeated WorldWall walls = 3;
+    repeated Player players = 4;
+    repeated Projectile projectiles = 5;
 }
 
 message NetworkPosition {

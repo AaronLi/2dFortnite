@@ -8,3 +8,5 @@ build_client:
 
 build_server:
 	go build -o bin/2dfortnite_server ./src/server/
+
+build: build_client build_server

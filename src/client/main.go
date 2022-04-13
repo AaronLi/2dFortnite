@@ -39,7 +39,7 @@ func main() {
 	log.Printf("Response: ID: %d", response.Id)
 
 	sdl.Main(func() {
-		exitcode = run(&request, response.Id)
+		exitcode = run(&request, response.Id, &client)
 	})
 
 	os.Exit(exitcode)
