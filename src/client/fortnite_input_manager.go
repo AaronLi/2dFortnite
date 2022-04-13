@@ -13,6 +13,7 @@ type InputManager struct {
 	keyState map[int]bool
 	currentSlot int32
 	slotChanged bool
+	reloadAttempted bool
 }
 
 func NewInputManager(commands chan *pb.DoActionRequest, id uint64) *InputManager {
@@ -31,7 +32,7 @@ func (manager *InputManager) MouseWheelEvent(scrollAmount int32, currentSlot int
 	scrollDistance := scrollAmount % 5
 
 	if scrollDistance != 0 {
-		manager.currentSlot = (currentSlot + scrollDistance) % 5
+		manager.currentSlot = (currentSlot + scrollDistance + 5) % 5
 		manager.slotChanged = true
 	}
 }
@@ -85,6 +86,20 @@ func (manager *InputManager) Run(){
 				}
 				manager.commandChannel <- &slotAction
 				manager.slotChanged = false
+			}
+
+			if pressed, present := manager.keyState[sdl.K_r]; present && pressed {
+				if !manager.reloadAttempted{
+					reloadAction := pb.DoActionRequest{
+						PlayerId: &pb.PlayerId{Id:manager.playerId},
+						ActionType: pb.ActionType_USE_ITEM,
+						ActionData: &pb.DoActionRequest_UseItem{},
+					}
+					manager.commandChannel <- &reloadAction
+					manager.reloadAttempted = true
+				}
+			}else{
+				manager.reloadAttempted = false
 			}
 		}
 	}

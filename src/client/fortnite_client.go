@@ -3,6 +3,7 @@ package main
 import (
 	"github.com/veandco/go-sdl2/sdl"
 	"github.com/veandco/go-sdl2/gfx"
+	"github.com/veandco/go-sdl2/ttf"
 	pb "2dFortnite/proto"
 	"2dFortnite/pkg/shared"
 	"context"
@@ -10,6 +11,7 @@ import (
 	"log"
 	"sync"
 	"fmt"
+	"math"
 )
 
 const (
@@ -30,7 +32,12 @@ func run(userInfo *pb.RegisterPlayerRequest, id uint64, client *pb.FortniteServi
 	var fpsManager gfx.FPSmanager
 	var err error
 	var currentWorldState *pb.WorldStateResponse
+	var uiFont *ttf.Font
 
+	sdl.Do(func(){
+		ttf.Init()
+		uiFont, err = ttf.OpenFont("fortnite.otf", 30)
+	})
 	inputManagerCommands := make(chan *pb.DoActionRequest)
 
 	inputManager := NewInputManager(inputManagerCommands, id)
@@ -99,6 +106,31 @@ func run(userInfo *pb.RegisterPlayerRequest, id uint64, client *pb.FortniteServi
 			renderer.FillRect(&sdl.Rect{0, 0, WindowWidth, WindowHeight})
 		})
 		mX, mY, mB := sdl.GetMouseState()
+
+		if mB == 1{
+			// try to use current item
+			switch currentWorldState.Player.Inventory[currentWorldState.Player.EquippedSlot].Item {
+				case pb.ItemType_WEAPON:
+					// try to fire weapon
+					(*client).DoAction(context.Background(), &pb.DoActionRequest{
+						ActionType: pb.ActionType_SHOOT_PROJECTILE,
+						PlayerId: &pb.PlayerId{
+							Id: id,
+						},
+						ActionData: &pb.DoActionRequest_ShootProjectile{
+							ShootProjectile: &pb.ShootProjectileRequest{
+								Facing: math.Atan2(float64(mY - WindowHeight/2), float64(mX - WindowWidth/2)) / math.Pi * 180,
+							},
+						},
+					})
+						
+				case pb.ItemType_CONSUMABLE:
+					if oldMb == 0 {
+						// do thing
+					}
+			}
+		}
+
 		select {
 		case worldUpdate := <-worldUpdateChan:
 			currentWorldState = worldUpdate
@@ -120,12 +152,9 @@ func run(userInfo *pb.RegisterPlayerRequest, id uint64, client *pb.FortniteServi
 			go func(i int) {
 				sdl.Do(func() {
 					renderer.SetDrawColor(0xff, 0xff, 0xff, 0xff)
-					renderer.DrawRect(&sdl.Rect{
-						X: int32(WindowWidth/2 + currentWorldState.Players[i].Position.X - currentWorldState.Player.Position.X),
-						Y: int32(WindowHeight/2 + currentWorldState.Players[i].Position.Y - currentWorldState.Player.Position.Y),
-						W: 10,
-						H: 10,
-					})
+					drawX := int32(WindowWidth/2 + currentWorldState.Players[i].Position.X - currentWorldState.Player.Position.X)
+					drawY := int32(WindowHeight/2 + currentWorldState.Players[i].Position.Y - currentWorldState.Player.Position.Y)
+					gfx.FilledCircleRGBA(renderer, drawX, drawY, fortnite.PLAYER_RADIUS, 0xff, 0xff, 0xff, 0xff)
 					currentWorldState.Players[i].Position.X += currentWorldState.Players[i].Position.VX * (1.0 / fortnite.SERVER_TICKRATE) * (fortnite.SERVER_TICKRATE / float64(FrameRate))
 					currentWorldState.Players[i].Position.Y += currentWorldState.Players[i].Position.VY * (1.0 / fortnite.SERVER_TICKRATE) * (fortnite.SERVER_TICKRATE / float64(FrameRate))
 				})
@@ -172,6 +201,24 @@ func run(userInfo *pb.RegisterPlayerRequest, id uint64, client *pb.FortniteServi
 				wg.Done()
 			}(i)
 		}
+
+		for i := range currentWorldState.Projectiles {
+			wg.Add(1)
+			go func(i int) {
+				sdl.Do(func() {
+					renderer.SetDrawColor(0xff, 0xff, 0xff, 0xff)
+					gfx.FilledCircleRGBA(renderer, 
+						int32(WindowWidth/2 + currentWorldState.Projectiles[i].Position.X - currentWorldState.Player.Position.X),
+						int32(WindowHeight/2 + currentWorldState.Projectiles[i].Position.Y - currentWorldState.Player.Position.Y),
+						3,
+						0xff, 0xff, 0xff, 0xff)
+					
+					currentWorldState.Projectiles[i].Position.X += currentWorldState.Projectiles[i].Position.VX * (1.0 / fortnite.SERVER_TICKRATE) * (fortnite.SERVER_TICKRATE / float64(FrameRate))
+					currentWorldState.Projectiles[i].Position.Y += currentWorldState.Projectiles[i].Position.VY * (1.0 / fortnite.SERVER_TICKRATE) * (fortnite.SERVER_TICKRATE / float64(FrameRate))
+				})
+				wg.Done()
+			}(i)
+		}
 		wg.Wait()
 
 		// draw UI
@@ -210,7 +257,37 @@ func run(userInfo *pb.RegisterPlayerRequest, id uint64, client *pb.FortniteServi
 				wg.Done()
 			}(i)
 		}
+
+		if selectedSlot := currentWorldState.Player.Inventory[currentWorldState.Player.EquippedSlot]; selectedSlot.Item == pb.ItemType_WEAPON {
+			wg.Add(1)
+			go func(){sdl.Do(func() {
+
+				var ammoRemaining uint32
+
+				for _, stack := range currentWorldState.Player.Resources {
+					if stack.Item == pb.ItemType_AMMO {
+						if stack.GetAmmo() == fortnite.WeaponAmmoUsage[selectedSlot.GetWeapon()] {
+							ammoRemaining = stack.StackSize
+							break
+						}
+					}
+				}
+
+				drawSurface, _ := uiFont.RenderUTF8Solid(fmt.Sprintf("%s %d / %d",fortnite.WeaponDisplayNames[selectedSlot.GetWeapon()], selectedSlot.StackSize, ammoRemaining), sdl.Color{R: 0xff, G: 0xff, B: 0xff, A: 0xff})
+				
+				drawTexture, _ := renderer.CreateTextureFromSurface(drawSurface)
+				bounds := drawSurface.Bounds()
+
+				width := int32(bounds.Max.X)
+				height := int32(bounds.Max.Y)
+
+				renderer.Copy(drawTexture, &sdl.Rect{X: 0, Y: 0, W: width, H: height}, &sdl.Rect{X: WindowWidth - (55 * 5), Y: WindowHeight - 60 - height, W: width, H: height})
+			})
+			wg.Done()
+		}()
+		}
 		wg.Wait()
+		
 
 		sdl.Do(func() {
 			renderer.Present()

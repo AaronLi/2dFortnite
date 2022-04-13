@@ -260,15 +260,16 @@ func (server *FortniteServer) updateWorld(){
 	// process actions
 	for i := len(server.queuedActions); i > 0; i-- {
 		action := <- server.queuedActions
-
+		player, present := server.players[action.PlayerId.Id]
+		if !present {
+			continue
+		}
 		switch action.ActionType {
 			case pb.ActionType_PICKUP_ITEM:
 				pickupItemRequest := action.GetPickupItem()
 
 				// verify item exists and is in range
 				item, exists := server.items[pickupItemRequest.ItemId]
-				// verify player has inventory space
-				player := server.players[action.PlayerId.Id]
 				
 				if exists {
 					dx := item.Pos.X - player.Position.X
@@ -292,9 +293,11 @@ func (server *FortniteServer) updateWorld(){
 							// put item in first empty slot
 							for _, slot := range player.Inventory {
 								if slot.Item == pb.ItemType_NONE {
-									log.Println("Direct inventory Distance", distance)
 									slot.Item = item.ItemType
 									slot.Rarity = item.ItemRarity
+									slot.ItemData = &pb.InventorySlot_Weapon{
+										Weapon: item.GetWeapon(),
+									}
 									slot.StackSize = item.StackSize
 									slot.Cooldown = 0
 									slot.Reload =  0
@@ -303,13 +306,15 @@ func (server *FortniteServer) updateWorld(){
 								}
 							}
 							if !pickedUp {
-								log.Println("Distance", distance)
 								// swap with item at currently selected slot
 								server.dropItemInventory(player.EquippedSlot, player.Id)
 								
 								player.Inventory[player.EquippedSlot].Item = item.ItemType
 								player.Inventory[player.EquippedSlot].Rarity = item.ItemRarity
 								player.Inventory[player.EquippedSlot].StackSize = item.StackSize
+								player.Inventory[player.EquippedSlot].ItemData = &pb.InventorySlot_Weapon{
+									Weapon: item.GetWeapon(),
+								}
 								player.Inventory[player.EquippedSlot].Cooldown = 0
 								player.Inventory[player.EquippedSlot].Reload =  0
 							}
@@ -317,7 +322,6 @@ func (server *FortniteServer) updateWorld(){
 						delete(server.items, pickupItemRequest.ItemId)
 					}
 				}
-				log.Println(server.players[player.Id].Inventory)
 			case pb.ActionType_DROP_ITEM:
 				dropItemRequest := action.GetDropItem() 
 
@@ -346,25 +350,24 @@ func (server *FortniteServer) updateWorld(){
 				shootWeaponInfo := action.GetShootProjectile()
 				// check if player has weapon equipped
 				// check if player has ammo
-				user := server.players[action.PlayerId.Id]
 
-				user.Rotation = shootWeaponInfo.Facing
+				player.Rotation = shootWeaponInfo.Facing
 
-				equippedItem := user.Inventory[user.EquippedSlot]
+				equippedItem := player.Inventory[player.EquippedSlot]
 				if equippedItem.Item == pb.ItemType_WEAPON {
 					if equippedItem.Cooldown == 0 && equippedItem.Reload == 0 && equippedItem.StackSize > 0{
 						weaponInfo := equippedItem.GetWeapon()
 						switch weaponInfo {
 						case pb.Weapon_PISTOL:
-							server.spawnBullet(weaponInfo, equippedItem, user)
+							server.spawnBullet(weaponInfo, equippedItem, player)
 						case pb.Weapon_PUMP_SHOTGUN:
 							for i := 0; i < 10; i++ {
-								server.spawnBullet(weaponInfo, equippedItem, user)
+								server.spawnBullet(weaponInfo, equippedItem, player)
 							}
 						case pb.Weapon_SMG:
-							server.spawnBullet(weaponInfo, equippedItem, user)
+							server.spawnBullet(weaponInfo, equippedItem, player)
 						case pb.Weapon_ASSAULT_RIFLE:
-							server.spawnBullet(weaponInfo, equippedItem, user)
+							server.spawnBullet(weaponInfo, equippedItem, player)
 						}
 						equippedItem.StackSize -= 1
 						equippedItem.Cooldown = fortnite.WeaponCooldowns[weaponInfo]
@@ -372,10 +375,9 @@ func (server *FortniteServer) updateWorld(){
 				}
 			case pb.ActionType_BUILD_WALL:
 				buildWallInfo := action.GetBuildWall()
-				user := server.players[action.PlayerId.Id]
 				// check if player isn't too far from the desired position
 				// check if player has enough resources
-				for _, resource := range user.Resources {
+				for _, resource := range player.Resources {
 					if resource.Item == pb.ItemType_MATERIAL{
 						materialType := resource.GetMaterial()
 
@@ -504,23 +506,30 @@ func (server *FortniteServer) updateWorld(){
 	for projectileUUID, projectile := range server.projectiles{
 		projectile_center_x := int64(projectile.Position.X/fortnite.WALL_GRID_SIZE)
 		projectile_center_y := int64(projectile.Position.Y/fortnite.WALL_GRID_SIZE)
-
+		hitSomething := false
 		// check 3x3 centered on projectile for collisions
 		for y_off := int64(-1); y_off <= 1; y_off++{
 			for x_off := int64(-1); x_off <= 1; x_off++{
 				check_y := projectile_center_y + y_off
 				check_x := projectile_center_x+x_off
+				hitPlayer := false
+				hitWall := false
 				for uuid, player := range playerGridPositions[check_y][check_x] {
 					if server.collidesPlayer(projectileUUID, uuid) {
+						log.Printf("Projectile at %.3f,%.3f moving at %.3f %.3f collided with player at %.3f,%.3f", projectile.Position.X, projectile.Position.Y, projectile.Position.VX, projectile.Position.VY, player.Position.X, player.Position.Y)
 						if player.Health > projectile.Damage {
+							log.Printf("Dealt %d to %d", projectile.Damage, uuid)
 							player.Health -= projectile.Damage
 						}else{
+							log.Printf("Dealt %d to %d", player.Health, uuid)
 							player.Health = 0
 							deaths = append(deaths, uuid)
 						}
+						hitPlayer = true
+						break
 					}
 				}
-				if wall_uuid, ok := wallGridPositions[check_y][check_x]; ok {
+				if wall_uuid, ok := wallGridPositions[check_y][check_x]; ok && !hitPlayer {
 					if server.collidesWall(projectileUUID, wall_uuid) {
 						wall := server.walls[wall_uuid]
 						if wall.Health > projectile.Damage {
@@ -529,9 +538,20 @@ func (server *FortniteServer) updateWorld(){
 							wall.Health = 0
 							walls_broken = append(walls_broken, wall_uuid)
 						}
+						hitWall = true
 					}
 				}
+				if hitPlayer || hitWall {
+					hitSomething = true
+					break
+				}
 			}
+			if hitSomething {
+				break
+			}
+		}
+		if hitSomething {
+			delete(server.projectiles, projectileUUID)
 		}
 	}
 
@@ -645,13 +665,68 @@ func (server *FortniteServer) spawnBullet(weaponInfo pb.Weapon, equippedItem *pb
 }
 
 func (server *FortniteServer) collidesPlayer(projectileUUID uint64, playerUUID uint64) bool {
-	//projectile := server.projectiles[projectileUUID]
-	//player := server.players[playerUUID]
+	projectile := server.projectiles[projectileUUID]
+	player := server.players[playerUUID]
+
+	if projectile.Owner == playerUUID {
+		return false
+	}
 
 	// line (projectile +velocity) intersects circle (player)
 	
-	panic("Not implemented")
+	Ux := player.Position.X - projectile.Position.X
+	Uy := player.Position.Y - projectile.Position.Y
+
+	VelocityMagnitude := math.Hypot(projectile.Position.VX, projectile.Position.VY)
+
+	Vx := projectile.Position.VX / VelocityMagnitude
+	Vy := projectile.Position.VY / VelocityMagnitude
+
+	U1intermediate := Ux * Vx + Uy * Vy
+
+	U1x := U1intermediate * Vx
+	U1y := U1intermediate * Vy
+
+	U1dotDirection := U1x * projectile.Position.VX + U1y * projectile.Position.VY
+
+	if U1dotDirection < 0 {
+		return false
+	}
 	
+	U2x := Ux - U1x
+	U2y := Uy - U1y
+
+	d := math.Hypot(U2x, U2y)
+	
+	targetRadius := float64(fortnite.PLAYER_RADIUS)
+	if d <= targetRadius {
+		m := math.Sqrt(targetRadius * targetRadius - d * d)
+		mVx := m * Vx
+		mVy := m * Vy
+		p1x := projectile.Position.X + U1x + mVx
+		p1y := projectile.Position.Y + U1y + mVy
+
+		// check if projectile to p1 is less than projectile to velocity
+		p1DistanceX := projectile.Position.X - p1x
+		p1DistanceY := projectile.Position.Y - p1y
+
+		if math.Hypot(p1DistanceX, p1DistanceY) < math.Hypot(projectile.Position.VX, projectile.Position.VY) {
+			return true
+		}
+		if d == targetRadius{
+			p2x := projectile.Position.X + U1x - mVx
+			p2y := projectile.Position.Y + U1y - mVy
+
+			p2DistanceX := projectile.Position.X - p2x
+			p2DistanceY := projectile.Position.Y - p2y
+
+			if math.Hypot(p2DistanceX, p2DistanceY) < math.Hypot(projectile.Position.VX, projectile.Position.VY) {
+				return true
+			}
+		}
+	}
+	return false
+
 }
 
 func (server *FortniteServer) collidesWall(projectileUUID uint64, wallUUID uint64) bool {

@@ -224,4 +224,5 @@ message Projectile {
     NetworkPosition position = 2;
     uint32 damage = 3;
     uint32 life = 4;
+    uint64 owner = 5;
 }

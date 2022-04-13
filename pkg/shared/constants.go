@@ -16,6 +16,8 @@ const (
 
 	MAX_SPEED = 100.0
 
+	PLAYER_RADIUS = 10.0
+
 	MAX_INVENTORY_SIZE = 5
 
 	PICKUP_RANGE = 50.0
@@ -78,16 +80,16 @@ var WeaponDamage map[pb.Weapon]map[pb.Rarity]uint32 = map[pb.Weapon]map[pb.Rarit
 }
 
 var WeaponInaccuracy map[pb.Weapon]float64 = map[pb.Weapon]float64{
-	pb.Weapon_PISTOL: 2.0,
-	pb.Weapon_PUMP_SHOTGUN: 6.0,
-	pb.Weapon_ASSAULT_RIFLE: 3.0,
-	pb.Weapon_SMG: 4.0,
+	pb.Weapon_PISTOL: 4.0,
+	pb.Weapon_PUMP_SHOTGUN: 10.0,
+	pb.Weapon_ASSAULT_RIFLE: 5.0,
+	pb.Weapon_SMG: 8.0,
 }
 
 var WeaponCooldowns map[pb.Weapon]uint32 = map[pb.Weapon]uint32{
-	pb.Weapon_PISTOL: 3,
-	pb.Weapon_PUMP_SHOTGUN: 10,
-	pb.Weapon_ASSAULT_RIFLE: 2,
+	pb.Weapon_PISTOL: 8,
+	pb.Weapon_PUMP_SHOTGUN: 30,
+	pb.Weapon_ASSAULT_RIFLE: 4,
 	pb.Weapon_SMG: 1,
 }
 
@@ -141,4 +143,11 @@ var RarityColours map[pb.Rarity]color.RGBA = map[pb.Rarity]color.RGBA{
 		G: 170,
 		B: 31,
 	},
+}
+
+var WeaponDisplayNames = map[pb.Weapon]string{
+	pb.Weapon_PISTOL: "Pistol",
+	pb.Weapon_PUMP_SHOTGUN: "Shotgun",
+	pb.Weapon_ASSAULT_RIFLE: "Assault Rifle",
+	pb.Weapon_SMG: "SMG",
 }
