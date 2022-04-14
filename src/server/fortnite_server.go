@@ -90,13 +90,6 @@ func (s *FortniteServer) RegisterPlayer(ctx context.Context, in *pb.RegisterPlay
 	player.Resources = append(player.Resources, &pb.ResourceStack{
 		Item: pb.ItemType_AMMO,
 		ItemData: &pb.ResourceStack_Ammo{
-			Ammo: pb.Ammo_SMG_AMMO,
-		},
-	})
-
-	player.Resources = append(player.Resources, &pb.ResourceStack{
-		Item: pb.ItemType_AMMO,
-		ItemData: &pb.ResourceStack_Ammo{
 			Ammo: pb.Ammo_ASSAULT_RIFLE_AMMO,
 		},
 	})
@@ -278,10 +271,15 @@ func (server *FortniteServer) updateWorld(){
 					if distance < fortnite.PICKUP_RANGE {
 						switch item.ItemType {
 						case pb.ItemType_MATERIAL: // materials and ammo interact with the inventory in the same way
-						fallthrough	
+						for _, slot := range player.Resources {
+							if slot.Item == pb.ItemType_MATERIAL && slot.GetMaterial() == item.GetMaterial() {
+								slot.StackSize += item.StackSize
+								break
+							}
+						}
 						case pb.ItemType_AMMO:
 						for _, slot := range player.Resources {
-							if slot.Item == item.ItemType {
+							if slot.Item == pb.ItemType_AMMO && slot.GetAmmo() == item.GetAmmo() {
 								slot.StackSize += item.StackSize
 								break
 							}
@@ -551,6 +549,7 @@ func (server *FortniteServer) updateWorld(){
 			}
 		}
 		if hitSomething {
+			log.Printf("Deleting projectile at %.3f,%.3f moving at %.3f %.3f", projectile.Position.X, projectile.Position.Y, projectile.Position.VX, projectile.Position.VY)
 			delete(server.projectiles, projectileUUID)
 		}
 	}
@@ -713,13 +712,12 @@ func (server *FortniteServer) collidesPlayer(projectileUUID uint64, playerUUID u
 		if math.Hypot(p1DistanceX, p1DistanceY) < math.Hypot(projectile.Position.VX, projectile.Position.VY) {
 			return true
 		}
-		if d == targetRadius{
+		if d < targetRadius{
 			p2x := projectile.Position.X + U1x - mVx
 			p2y := projectile.Position.Y + U1y - mVy
 
 			p2DistanceX := projectile.Position.X - p2x
 			p2DistanceY := projectile.Position.Y - p2y
-
 			if math.Hypot(p2DistanceX, p2DistanceY) < math.Hypot(projectile.Position.VX, projectile.Position.VY) {
 				return true
 			}
@@ -756,6 +754,22 @@ func (server *FortniteServer) populateWorld(){
 
 		worldItem.StackSize = fortnite.WeaponAmmoLimits[worldItem.GetWeapon()]
 		server.items[worldItem.Id] = &worldItem
+
+		// spawn appropriate ammo near weapon
+		var resource pb.WorldItem
+		resource.Id = rand.Uint64()
+		resource.Pos = &pb.NetworkPosition{
+			X: worldItem.Pos.X + (rand.Float64()-0.5) * 30.0,
+			Y: worldItem.Pos.Y + (rand.Float64()-0.5) * 30.0,
+		}
+
+		resource.ItemType = pb.ItemType_AMMO
+
+		resource.ItemData = &pb.WorldItem_Ammo{
+			Ammo: fortnite.WeaponAmmoUsage[worldItem.GetWeapon()],
+		}
+		resource.StackSize = uint32(rand.Intn(20) + 10)
+		server.items[resource.Id] = &resource
 	}
 }
 

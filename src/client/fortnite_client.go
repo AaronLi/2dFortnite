@@ -87,6 +87,7 @@ func run(userInfo *pb.RegisterPlayerRequest, id uint64, client *pb.FortniteServi
 	})
 	var oldMb uint32= 0 // old mouse button state
 	running := true
+	pickedUpItem := false
 	for running {
 		sdl.Do(func() {
 			for event := sdl.PollEvent(); event != nil; event = sdl.PollEvent() {
@@ -107,28 +108,8 @@ func run(userInfo *pb.RegisterPlayerRequest, id uint64, client *pb.FortniteServi
 		})
 		mX, mY, mB := sdl.GetMouseState()
 
-		if mB == 1{
-			// try to use current item
-			switch currentWorldState.Player.Inventory[currentWorldState.Player.EquippedSlot].Item {
-				case pb.ItemType_WEAPON:
-					// try to fire weapon
-					(*client).DoAction(context.Background(), &pb.DoActionRequest{
-						ActionType: pb.ActionType_SHOOT_PROJECTILE,
-						PlayerId: &pb.PlayerId{
-							Id: id,
-						},
-						ActionData: &pb.DoActionRequest_ShootProjectile{
-							ShootProjectile: &pb.ShootProjectileRequest{
-								Facing: math.Atan2(float64(mY - WindowHeight/2), float64(mX - WindowWidth/2)) / math.Pi * 180,
-							},
-						},
-					})
-						
-				case pb.ItemType_CONSUMABLE:
-					if oldMb == 0 {
-						// do thing
-					}
-			}
+		if mB == 0{
+			pickedUpItem = false
 		}
 
 		select {
@@ -170,8 +151,8 @@ func run(userInfo *pb.RegisterPlayerRequest, id uint64, client *pb.FortniteServi
 						renderer.SetDrawColor(color.R, color.G, color.B, color.A)
 					
 					itemRect := sdl.Rect{
-						X: int32(WindowWidth/2 + currentWorldState.Items[i].Pos.X - currentWorldState.Player.Position.X),
-						Y: int32(WindowHeight/2 + currentWorldState.Items[i].Pos.Y - currentWorldState.Player.Position.Y),
+						X: int32(WindowWidth/2 + currentWorldState.Items[i].Pos.X - currentWorldState.Player.Position.X) - 12,
+						Y: int32(WindowHeight/2 + currentWorldState.Items[i].Pos.Y - currentWorldState.Player.Position.Y) - 5,
 						W: 25,
 						H: 10,
 					}
@@ -195,6 +176,7 @@ func run(userInfo *pb.RegisterPlayerRequest, id uint64, client *pb.FortniteServi
 									},
 								},
 							})
+							pickedUpItem = true
 						}
 					}
 				})
@@ -220,6 +202,30 @@ func run(userInfo *pb.RegisterPlayerRequest, id uint64, client *pb.FortniteServi
 			}(i)
 		}
 		wg.Wait()
+
+		if !pickedUpItem && mB == 1{
+			// try to use current item
+			switch currentWorldState.Player.Inventory[currentWorldState.Player.EquippedSlot].Item {
+				case pb.ItemType_WEAPON:
+					// try to fire weapon
+					(*client).DoAction(context.Background(), &pb.DoActionRequest{
+						ActionType: pb.ActionType_SHOOT_PROJECTILE,
+						PlayerId: &pb.PlayerId{
+							Id: id,
+						},
+						ActionData: &pb.DoActionRequest_ShootProjectile{
+							ShootProjectile: &pb.ShootProjectileRequest{
+								Facing: math.Atan2(float64(mY - WindowHeight/2), float64(mX - WindowWidth/2)) / math.Pi * 180,
+							},
+						},
+					})
+						
+				case pb.ItemType_CONSUMABLE:
+					if oldMb == 0 {
+						// do thing
+					}
+			}
+		}
 
 		// draw UI
 
@@ -252,6 +258,25 @@ func run(userInfo *pb.RegisterPlayerRequest, id uint64, client *pb.FortniteServi
 							W: 44,
 							H: 44,
 						})
+
+						if inventoryInfo.Item == pb.ItemType_WEAPON {
+							if inventoryInfo.Reload != 0 {
+								// draw remaining reload time
+								reloadSurface, _ := uiFont.RenderUTF8Solid(fmt.Sprintf("%.1f", float32(inventoryInfo.Reload) / fortnite.SERVER_TICKRATE), sdl.Color{R: 255, G: 255, B: 255, A: 255})
+								reloadTexture, _ := renderer.CreateTextureFromSurface(reloadSurface)
+
+								renderer.Copy(reloadTexture, nil, &sdl.Rect{
+									X: int32(WindowWidth - (55 * 5) - 5 + 55 * i + 3 + 22 - 16),
+									Y: int32(WindowHeight- 60 + 3 + 22 - 16),
+									W: 32,
+									H: 32,
+								})
+							}
+						} else {
+							if inventoryInfo.Cooldown != 0 {
+								// draw remaining cooldown
+							}
+						}
 					}
 				})
 				wg.Done()
@@ -286,6 +311,62 @@ func run(userInfo *pb.RegisterPlayerRequest, id uint64, client *pb.FortniteServi
 			wg.Done()
 		}()
 		}
+
+		wg.Add(1)
+		go func(){sdl.Do(func() {
+
+			healthBarBacking := sdl.Rect{
+				X: 10,
+				Y: WindowHeight - 60,
+				W: 200,
+				H: 40,
+			}
+
+			shieldBarBacking := sdl.Rect{
+				X: 10,
+				Y: WindowHeight - 60 - 50,
+				W: 200,
+				H: 40,
+			}
+
+			renderer.SetDrawColor(150, 150, 150, 0xff)
+
+			renderer.FillRect(&healthBarBacking)
+			renderer.FillRect(&shieldBarBacking)
+
+			healthBar := sdl.Rect{
+				X: healthBarBacking.X,
+				Y: healthBarBacking.Y,
+				W: int32(200 * currentWorldState.Player.Health / 100),
+				H: healthBarBacking.H,
+			}
+
+			shieldBar := sdl.Rect{
+				X: shieldBarBacking.X,
+				Y: shieldBarBacking.Y,
+				W: int32(200 * currentWorldState.Player.Shields / 100),
+				H: shieldBarBacking.H,
+			}
+
+			renderer.SetDrawColor(58, 245, 29, 0xff)
+			renderer.FillRect(&healthBar)
+			renderer.SetDrawColor(29, 101, 245, 0xff)
+			renderer.FillRect(&shieldBar)
+
+			// draw health and shields text
+			healthTextSurface, _ := uiFont.RenderUTF8Solid(fmt.Sprintf("%d", currentWorldState.Player.Health), sdl.Color{R: 0xff, G: 0xff, B: 0xff, A: 0xff})
+			shieldTextSurface, _ := uiFont.RenderUTF8Solid(fmt.Sprintf("%d", currentWorldState.Player.Shields), sdl.Color{R: 0xff, G: 0xff, B: 0xff, A: 0xff})
+
+			healthTextTexture, _ := renderer.CreateTextureFromSurface(healthTextSurface)
+			shieldTextTexture, _ := renderer.CreateTextureFromSurface(shieldTextSurface)
+
+			healthHeight := int32(healthTextSurface.Bounds().Max.Y)
+			shieldHeight := int32(shieldTextSurface.Bounds().Max.Y)
+
+			renderer.Copy(healthTextTexture, &sdl.Rect{X: 0, Y: 0, W: healthTextSurface.W, H: healthTextSurface.H}, &sdl.Rect{X: 15, Y: WindowHeight - 60 + 25 - healthHeight/2, W: healthTextSurface.W, H: healthTextSurface.H})
+			renderer.Copy(shieldTextTexture, &sdl.Rect{X: 0, Y: 0, W: shieldTextSurface.W, H: shieldTextSurface.H}, &sdl.Rect{X: 15, Y: WindowHeight - 60 - 50 + 25 - shieldHeight/2, W: shieldTextSurface.W, H: shieldTextSurface.H})
+			wg.Done()
+		})}()
 		wg.Wait()
 		
 

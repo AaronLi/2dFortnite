@@ -57,11 +57,11 @@ var WeaponDamage map[pb.Weapon]map[pb.Rarity]uint32 = map[pb.Weapon]map[pb.Rarit
 		pb.Rarity_LEGENDARY: 29,
 	},
 	pb.Weapon_PUMP_SHOTGUN: {
-		pb.Rarity_COMMON: 84,
-		pb.Rarity_UNCOMMON: 92,
-		pb.Rarity_RARE: 100,
-		pb.Rarity_EPIC: 108,
-		pb.Rarity_LEGENDARY: 116,
+		pb.Rarity_COMMON: 8,
+		pb.Rarity_UNCOMMON: 9,
+		pb.Rarity_RARE: 10,
+		pb.Rarity_EPIC: 11,
+		pb.Rarity_LEGENDARY: 12,
 	},
 	pb.Weapon_ASSAULT_RIFLE: {
 		pb.Rarity_COMMON: 30,
@@ -103,7 +103,7 @@ var WeaponAmmoUsage = map[pb.Weapon]pb.Ammo {
 	pb.Weapon_PISTOL: pb.Ammo_PISTOL_AMMO,
 	pb.Weapon_PUMP_SHOTGUN: pb.Ammo_SHOTGUN_AMMO,
 	pb.Weapon_ASSAULT_RIFLE: pb.Ammo_ASSAULT_RIFLE_AMMO,
-	pb.Weapon_SMG: pb.Ammo_SMG_AMMO,	
+	pb.Weapon_SMG: pb.Ammo_PISTOL_AMMO,	
 }
 
 var WeaponReloadTime map[pb.Weapon]uint32 = map[pb.Weapon]uint32{

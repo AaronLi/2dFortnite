@@ -126,7 +126,6 @@ enum Consumable {
 enum Ammo {
     SHOTGUN_AMMO = 0;
     ASSAULT_RIFLE_AMMO = 1;
-    SMG_AMMO = 2;
     PISTOL_AMMO = 3;
 }
 

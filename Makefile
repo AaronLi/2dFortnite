@@ -1,3 +1,7 @@
+all: | compileproto build
+
+build: build_client build_server
+
 compileproto:
 	protoc --go_out=. --go_opt=paths=source_relative \
 --go-grpc_out=. --go-grpc_opt=paths=source_relative \
@@ -8,5 +12,3 @@ build_client:
 
 build_server:
 	go build -o bin/2dfortnite_server ./src/server/
-
-build: build_client build_server
