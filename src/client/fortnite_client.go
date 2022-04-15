@@ -12,6 +12,7 @@ import (
 	"sync"
 	"fmt"
 	"math"
+	"image/color"
 )
 
 const (
@@ -33,6 +34,7 @@ func run(userInfo *pb.RegisterPlayerRequest, id uint64, client *pb.FortniteServi
 	var err error
 	var currentWorldState *pb.WorldStateResponse
 	var uiFont *ttf.Font
+	var selectedMaterial int
 
 	sdl.Do(func(){
 		ttf.Init()
@@ -52,7 +54,8 @@ func run(userInfo *pb.RegisterPlayerRequest, id uint64, client *pb.FortniteServi
 	}
 
 	sdl.Do(func() {
-		window, err = sdl.CreateWindow(WindowTitle, sdl.WINDOWPOS_UNDEFINED, sdl.WINDOWPOS_UNDEFINED, WindowWidth, WindowHeight, sdl.WINDOW_OPENGL)
+		window, renderer, err = sdl.CreateWindowAndRenderer(WindowWidth, WindowHeight, sdl.WINDOW_OPENGL)
+		window.SetTitle(WindowTitle)
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to create window: %s\n", err)
@@ -68,14 +71,6 @@ func run(userInfo *pb.RegisterPlayerRequest, id uint64, client *pb.FortniteServi
 		gfx.InitFramerate(&fpsManager)
 		gfx.SetFramerate(&fpsManager, FrameRate)
 	})
-
-	sdl.Do(func() {
-		renderer, err = sdl.CreateRenderer(window, -1, sdl.RENDERER_ACCELERATED)
-	})
-	if err != nil {
-		fmt.Fprint(os.Stderr, "Failed to create renderer: %s\n", err)
-		return 2
-	}
 	defer func() {
 		sdl.Do(func() {
 			renderer.Destroy()
@@ -128,6 +123,39 @@ func run(userInfo *pb.RegisterPlayerRequest, id uint64, client *pb.FortniteServi
 		}
 		// Draw game world
 		wg := sync.WaitGroup{}
+
+		for i := range currentWorldState.Walls {
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
+				wall := currentWorldState.Walls[i]
+				wallWorldX := float64(wall.X * fortnite.WALL_GRID_SIZE)
+				wallWorldY := float64(wall.Y * fortnite.WALL_GRID_SIZE)
+				if wall.Orientation == pb.WallOrientation_VERTICAL {
+					wallScreenX := int32(wallWorldX - currentWorldState.Player.Position.X + fortnite.WALL_GRID_START_X + WindowWidth/2)
+					wallScreenY := int32(wallWorldY - currentWorldState.Player.Position.Y + fortnite.WALL_GRID_START_Y + WindowHeight/2)
+
+					wallScreenXEnd := wallScreenX
+					wallScreenYEnd := wallScreenY + fortnite.WALL_GRID_SIZE
+
+					wallColor := fortnite.MaterialColours[wall.Material]
+					sdl.Do(func(){
+						gfx.ThickLineRGBA(renderer, wallScreenX, wallScreenY, wallScreenXEnd, wallScreenYEnd, RectWidth, wallColor.R, wallColor.G, wallColor.B, wallColor.A)
+					})
+				}else {
+					wallScreenX := int32(wallWorldX - currentWorldState.Player.Position.X + fortnite.WALL_GRID_START_X + WindowWidth/2)
+					wallScreenY := int32(wallWorldY - currentWorldState.Player.Position.Y + fortnite.WALL_GRID_START_Y + WindowHeight/2)
+
+					wallScreenXEnd := wallScreenX + fortnite.WALL_GRID_SIZE
+					wallScreenYEnd := wallScreenY
+
+					wallColor := fortnite.MaterialColours[wall.Material]
+					sdl.Do(func(){
+						gfx.ThickLineRGBA(renderer, wallScreenX, wallScreenY, wallScreenXEnd, wallScreenYEnd, RectWidth, wallColor.R, wallColor.G, wallColor.B, wallColor.A)
+					})
+				}
+			}(i)
+		}
 		for i := range currentWorldState.Players {
 			wg.Add(1)
 			go func(i int) {
@@ -147,17 +175,42 @@ func run(userInfo *pb.RegisterPlayerRequest, id uint64, client *pb.FortniteServi
 			wg.Add(1)
 			go func(i int) {
 				sdl.Do(func() {
-					color := fortnite.RarityColours[currentWorldState.Items[i].ItemRarity]
-						renderer.SetDrawColor(color.R, color.G, color.B, color.A)
-					
-					itemRect := sdl.Rect{
-						X: int32(WindowWidth/2 + currentWorldState.Items[i].Pos.X - currentWorldState.Player.Position.X) - 12,
-						Y: int32(WindowHeight/2 + currentWorldState.Items[i].Pos.Y - currentWorldState.Player.Position.Y) - 5,
-						W: 25,
-						H: 10,
+					var drawColor color.RGBA
+					var itemRect *sdl.Rect
+					switch currentWorldState.Items[i].ItemType {
+					case pb.ItemType_WEAPON:
+						drawColor = fortnite.RarityColours[currentWorldState.Items[i].ItemRarity]
+						
+						
+						itemRect = &sdl.Rect{
+							X: int32(WindowWidth/2 + currentWorldState.Items[i].Pos.X - currentWorldState.Player.Position.X) - 12,
+							Y: int32(WindowHeight/2 + currentWorldState.Items[i].Pos.Y - currentWorldState.Player.Position.Y) - 5,
+							W: 25,
+							H: 10,
+						}
+					case pb.ItemType_AMMO:
+						drawColor = color.RGBA{0xFF, 0xFF, 0xFF, 0xFF}
+
+						itemRect = &sdl.Rect{
+							X: int32(WindowWidth/2 + currentWorldState.Items[i].Pos.X - currentWorldState.Player.Position.X) - 5,
+							Y: int32(WindowHeight/2 + currentWorldState.Items[i].Pos.Y - currentWorldState.Player.Position.Y) - 5,
+							W: 10,
+							H: 10,
+						}
+					case pb.ItemType_MATERIAL:
+						drawColor = fortnite.MaterialColours[currentWorldState.Items[i].GetMaterial()]
+
+						itemRect = &sdl.Rect{
+							X: int32(WindowWidth/2 + currentWorldState.Items[i].Pos.X - currentWorldState.Player.Position.X) - 5,
+							Y: int32(WindowHeight/2 + currentWorldState.Items[i].Pos.Y - currentWorldState.Player.Position.Y) - 5,
+							W: 10,
+							H: 10,
+						}
 					}
 
-					renderer.DrawRect(&itemRect)
+					renderer.SetDrawColor(drawColor.R, drawColor.G, drawColor.B, drawColor.A)
+
+					renderer.DrawRect(itemRect)
 
 					if itemRect.IntersectLine(&mX, &mY, &mX, &mY) {
 						renderer.SetDrawColor(255, 0, 0, 0xff)
@@ -165,7 +218,7 @@ func run(userInfo *pb.RegisterPlayerRequest, id uint64, client *pb.FortniteServi
 						itemRect.Y -= 3
 						itemRect.W += 6
 						itemRect.H += 6
-						renderer.DrawRect(&itemRect)
+						renderer.DrawRect(itemRect)
 						if mB == 1 && oldMb == 0 {
 							(*client).DoAction(context.Background(), &pb.DoActionRequest{
 								ActionType: pb.ActionType_PICKUP_ITEM,
@@ -202,8 +255,7 @@ func run(userInfo *pb.RegisterPlayerRequest, id uint64, client *pb.FortniteServi
 			}(i)
 		}
 		wg.Wait()
-
-		if !pickedUpItem && mB == 1{
+		if !pickedUpItem && mB == 1 && !inputManager.BuildWalls{
 			// try to use current item
 			switch currentWorldState.Player.Inventory[currentWorldState.Player.EquippedSlot].Item {
 				case pb.ItemType_WEAPON:
@@ -227,63 +279,207 @@ func run(userInfo *pb.RegisterPlayerRequest, id uint64, client *pb.FortniteServi
 			}
 		}
 
+		if inputManager.BuildWalls {
+			if mB == 4 && oldMb == 0 {
+				selectedMaterial = (selectedMaterial + 1) % 3
+			}
+		}
+
 		// draw UI
 
-		for i := range currentWorldState.Player.Inventory {
+		if !inputManager.BuildWalls{
+			for i := range currentWorldState.Player.Inventory {
+				wg.Add(1)
+				go func(i int) {
+					sdl.Do(func() {
+						inventoryInfo := currentWorldState.Player.Inventory[i]
+						if currentWorldState.Player.EquippedSlot == int32(i) {
+							renderer.SetDrawColor(255, 100, 100, 0xff)
+						} else{
+							renderer.SetDrawColor(200, 200, 200, 0xff)
+						}
+						
+
+						itemRect := sdl.Rect{
+							X: int32(WindowWidth - (55 * 5) - 5 + 55 * i),
+							Y: int32(WindowHeight- 60),
+							W: 50,
+							H: 50,
+						}
+
+						renderer.DrawRect(&itemRect)
+						if inventoryInfo.Item != pb.ItemType_NONE {
+							color := fortnite.RarityColours[inventoryInfo.Rarity]
+							renderer.SetDrawColor(color.R, color.G, color.B, color.A)
+							renderer.FillRect(&sdl.Rect{
+								X: int32(WindowWidth - (55 * 5) - 5 + 55 * i + 3),
+								Y: int32(WindowHeight- 60 + 3),
+								W: 44,
+								H: 44,
+							})
+
+							if inventoryInfo.Item == pb.ItemType_WEAPON {
+								if inventoryInfo.Reload != 0 {
+									// draw remaining reload time
+									reloadSurface, _ := uiFont.RenderUTF8Solid(fmt.Sprintf("%.1f", float32(inventoryInfo.Reload) / fortnite.SERVER_TICKRATE), sdl.Color{R: 255, G: 255, B: 255, A: 255})
+									reloadTexture, _ := renderer.CreateTextureFromSurface(reloadSurface)
+
+									renderer.Copy(reloadTexture, nil, &sdl.Rect{
+										X: int32(WindowWidth - (55 * 5) - 5 + 55 * i + 3 + 22 - 16),
+										Y: int32(WindowHeight- 60 + 3 + 22 - 16),
+										W: 32,
+										H: 32,
+									})
+								}
+							} else {
+								if inventoryInfo.Cooldown != 0 {
+									// draw remaining cooldown
+									cooldownSurface, _ := uiFont.RenderUTF8Solid(fmt.Sprintf("%.1f", float32(inventoryInfo.Cooldown) / fortnite.SERVER_TICKRATE), sdl.Color{R: 255, G: 255, B: 255, A: 255})
+									cooldownTexture, _ := renderer.CreateTextureFromSurface(cooldownSurface)
+
+									renderer.Copy(cooldownTexture, nil, &sdl.Rect{
+										X: int32(WindowWidth - (55 * 5) - 5 + 55 * i + 3 + 22 - 16),
+										Y: int32(WindowHeight- 60 + 3 + 22 - 16),
+										W: 32,
+										H: 32,
+									})
+								}
+							}
+						}
+					})
+					wg.Done()
+				}(i)
+			}
+		}else{
+			for i := range currentWorldState.Player.Resources {
+				wg.Add(1)
+				go func(slot int){
+					sdl.Do(
+						func() {
+							resourceInfo := currentWorldState.Player.Resources[slot]
+							if resourceInfo.Item == pb.ItemType_MATERIAL {
+								renderer.SetDrawColor(200, 200, 200, 0xff)
+								drawPosition := MaterialDrawPositions[resourceInfo.GetMaterial()]
+								switch resourceInfo.GetMaterial() {
+								case pb.Material_WOOD:
+									if selectedMaterial == 0 {
+										renderer.SetDrawColor(255, 100, 100, 0xff)
+									}
+								case pb.Material_BRICK:
+									if selectedMaterial == 1{
+										renderer.SetDrawColor(255, 100, 100, 0xff)
+									}
+								case pb.Material_METAL:
+									if selectedMaterial == 2{
+										renderer.SetDrawColor(255, 100, 100, 0xff)
+									}
+								}
+								renderer.DrawRect(&drawPosition)
+								drawColor := fortnite.MaterialColours[resourceInfo.GetMaterial()]
+								renderer.SetDrawColor(drawColor.R, drawColor.G, drawColor.B, drawColor.A)
+								drawPosition.X += 3
+								drawPosition.Y += 3
+								drawPosition.W -= 6
+								drawPosition.H -= 6
+								renderer.FillRect(&drawPosition)
+
+								drawPosition.X += 6
+								drawPosition.Y += 6
+								drawPosition.W -= 12
+								drawPosition.H -= 12
+
+								// render amount of material
+								amountSurface, _ := uiFont.RenderUTF8Solid(fmt.Sprintf("%d", resourceInfo.StackSize), sdl.Color{R: 255, G: 255, B: 255, A: 255})
+								amountTexture, _ := renderer.CreateTextureFromSurface(amountSurface)
+								renderer.Copy(amountTexture, nil, &drawPosition)
+
+							}
+						})
+					wg.Done()
+				}(i)
+			}
+
 			wg.Add(1)
-			go func(i int) {
-				sdl.Do(func() {
-					inventoryInfo := currentWorldState.Player.Inventory[i]
-					if currentWorldState.Player.EquippedSlot == int32(i) {
-						renderer.SetDrawColor(255, 100, 100, 0xff)
-					} else{
-						renderer.SetDrawColor(200, 200, 200, 0xff)
-					}
-					
+			go func(){
+				sdl.Do(func(){
+					for i := int32(0); i < 2; i++ {
+						if i == inputManager.BuildSlot {
+							renderer.SetDrawColor(255, 100, 100, 0xff)
+						} else {
+							renderer.SetDrawColor(200, 200, 200, 0xff)
+						}
 
-					itemRect := sdl.Rect{
-						X: int32(WindowWidth - (55 * 5) - 5 + 55 * i),
-						Y: int32(WindowHeight- 60),
-						W: 50,
-						H: 50,
-					}
-
-					renderer.DrawRect(&itemRect)
-					if inventoryInfo.Item != pb.ItemType_NONE {
-						color := fortnite.RarityColours[inventoryInfo.Rarity]
-						renderer.SetDrawColor(color.R, color.G, color.B, color.A)
-						renderer.FillRect(&sdl.Rect{
-							X: int32(WindowWidth - (55 * 5) - 5 + 55 * i + 3),
-							Y: int32(WindowHeight- 60 + 3),
-							W: 44,
-							H: 44,
+						renderer.DrawRect(&sdl.Rect{
+							X: int32(WindowWidth - (55 * 2) - 5 + 55 * i),
+							Y: int32(WindowHeight- 60),
+							W: 50,
+							H: 50,
 						})
 
-						if inventoryInfo.Item == pb.ItemType_WEAPON {
-							if inventoryInfo.Reload != 0 {
-								// draw remaining reload time
-								reloadSurface, _ := uiFont.RenderUTF8Solid(fmt.Sprintf("%.1f", float32(inventoryInfo.Reload) / fortnite.SERVER_TICKRATE), sdl.Color{R: 255, G: 255, B: 255, A: 255})
-								reloadTexture, _ := renderer.CreateTextureFromSurface(reloadSurface)
+						drawColor := fortnite.MaterialColours[pb.Material(selectedMaterial)]
 
-								renderer.Copy(reloadTexture, nil, &sdl.Rect{
-									X: int32(WindowWidth - (55 * 5) - 5 + 55 * i + 3 + 22 - 16),
-									Y: int32(WindowHeight- 60 + 3 + 22 - 16),
-									W: 32,
-									H: 32,
-								})
-							}
-						} else {
-							if inventoryInfo.Cooldown != 0 {
-								// draw remaining cooldown
-							}
+						switch i {
+						case 0:
+							// vertical
+							gfx.ThickLineRGBA(renderer, WindowWidth - (55 * 2) - 5 + 55 * i + 25, WindowHeight- 60 + 3, WindowWidth - (55 * 2) - 5 + 55 * i + 25, WindowHeight- 60 + 3 + 44, 5, drawColor.R, drawColor.G, drawColor.B, drawColor.A)
+						case 1:
+							// horizontal
+							gfx.ThickLineRGBA(renderer, WindowWidth - (55 * 2) - 5 + 55 * i + 3, WindowHeight- 60 + 25, WindowWidth - (55 * 2) - 5 + 55 * i + 3 + 44, WindowHeight- 60 + 25, 5, drawColor.R, drawColor.G, drawColor.B, drawColor.A)
 						}
 					}
 				})
 				wg.Done()
-			}(i)
+			}()
+
+			wg.Add(1)
+			go func(){
+				// draw blue line over where wall is being placed
+				wallGridX := math.Round((float64(mX) - fortnite.WALL_GRID_SIZE/2 + currentWorldState.Player.Position.X - WindowWidth/2) / fortnite.WALL_GRID_SIZE)
+				wallGridY := math.Round((float64(mY) - fortnite.WALL_GRID_SIZE/2 + currentWorldState.Player.Position.Y - WindowHeight/2) / fortnite.WALL_GRID_SIZE)
+				if inputManager.BuildSlot == 0 {
+					// vertical
+					wallStartX :=  fortnite.WALL_GRID_SIZE * wallGridX + fortnite.WALL_GRID_START_X - currentWorldState.Player.Position.X + WindowWidth/2
+					wallStartY :=  fortnite.WALL_GRID_SIZE * wallGridY + fortnite.WALL_GRID_START_Y - currentWorldState.Player.Position.Y + WindowHeight/2
+					wallEndX := wallStartX
+					wallEndY := wallStartY + fortnite.WALL_GRID_SIZE
+					sdl.Do(func(){
+						gfx.ThickLineRGBA(renderer, int32(wallStartX), int32(wallStartY), int32(wallEndX), int32(wallEndY), 5, 119, 184, 217, 0xff)
+					})
+
+				}else{
+					// horizontal
+					wallStartX := fortnite.WALL_GRID_SIZE *wallGridX + fortnite.WALL_GRID_START_X - currentWorldState.Player.Position.X + WindowWidth/2
+					wallStartY := fortnite.WALL_GRID_SIZE *wallGridY + fortnite.WALL_GRID_START_Y - currentWorldState.Player.Position.Y + WindowHeight/2
+					wallEndX := wallStartX + fortnite.WALL_GRID_SIZE
+					wallEndY := wallStartY
+					sdl.Do(func(){
+						gfx.ThickLineRGBA(renderer, int32(wallStartX), int32(wallStartY), int32(wallEndX), int32(wallEndY), 5, 119, 184, 217, 0xff)
+					})
+				}
+
+				if mB == 1 && oldMb == 0 && !pickedUpItem{
+					log.Printf("Placing wall at %f, %f", wallGridX, wallGridY)
+					(*client).DoAction(
+						context.Background(),
+						&pb.DoActionRequest{
+							ActionType: pb.ActionType_BUILD_WALL,
+							PlayerId: &pb.PlayerId{Id: id},
+							ActionData: &pb.DoActionRequest_BuildWall {
+								BuildWall: &pb.BuildWallRequest{
+									X: int64(wallGridX),
+									Y: int64(wallGridY),
+									Facing: pb.WallOrientation(uint32(inputManager.BuildSlot)),
+									Material: pb.Material(selectedMaterial),
+								},
+							},
+						})		
+				}
+				wg.Done()
+			}()
 		}
 
-		if selectedSlot := currentWorldState.Player.Inventory[currentWorldState.Player.EquippedSlot]; selectedSlot.Item == pb.ItemType_WEAPON {
+		if selectedSlot := currentWorldState.Player.Inventory[currentWorldState.Player.EquippedSlot]; selectedSlot.Item == pb.ItemType_WEAPON && !inputManager.BuildWalls {
+			// draw weapon name and ammo if equipped
 			wg.Add(1)
 			go func(){sdl.Do(func() {
 
@@ -312,6 +508,7 @@ func run(userInfo *pb.RegisterPlayerRequest, id uint64, client *pb.FortniteServi
 		}()
 		}
 
+		// draw health and shield bars
 		wg.Add(1)
 		go func(){sdl.Do(func() {
 

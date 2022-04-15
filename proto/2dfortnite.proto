@@ -53,7 +53,7 @@ message ShootProjectileRequest{
 message BuildWallRequest{
     int64 x = 1;
     int64 y = 2;
-    uint32 facing = 3;
+    WallOrientation facing = 3;
     Material material = 4;
 }
 
@@ -144,6 +144,11 @@ enum Rarity{
     LEGENDARY = 4;
 }
 
+enum WallOrientation{
+    VERTICAL = 0;
+    HORIZONTAL = 1;
+}
+
 message WorldItem {
     uint64 id = 1;
     NetworkPosition pos = 2; // velocity is probably always 0
@@ -163,7 +168,7 @@ message WorldWall {
     int64 x = 2;
     int64 y = 3;
     uint32 health = 4;
-    uint32 orientation = 5;
+    WallOrientation orientation = 5;
     Material material = 6;
 }
 

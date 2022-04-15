@@ -11,15 +11,19 @@ type InputManager struct {
 	commandChannel chan *pb.DoActionRequest	
 	playerId uint64
 	keyState map[int]bool
+	oldKeyState map[int]bool
 	currentSlot int32
+	BuildSlot int32 // which orientation of the wall to build
 	slotChanged bool
 	reloadAttempted bool
+	BuildWalls bool // true if building walls, false if firing weapon
 }
 
 func NewInputManager(commands chan *pb.DoActionRequest, id uint64) *InputManager {
 	return &InputManager{
 		commandChannel: commands,
 		keyState: make(map[int]bool),
+		oldKeyState: make(map[int]bool),
 		playerId: id,
 	}
 }
@@ -29,9 +33,12 @@ func (manager *InputManager) KeyEvent(key int, state uint32){
 }
 
 func (manager *InputManager) MouseWheelEvent(scrollAmount int32, currentSlot int32){
-	scrollDistance := scrollAmount % 5
 
-	if scrollDistance != 0 {
+	if manager.BuildWalls {
+		scrollDistance := scrollAmount % 2
+		manager.BuildSlot = (manager.BuildSlot + scrollDistance + 2) % 2
+	}else if scrollAmount % 5 != 0{
+		scrollDistance := scrollAmount % 5
 		manager.currentSlot = (currentSlot + scrollDistance + 5) % 5
 		manager.slotChanged = true
 	}
@@ -100,6 +107,16 @@ func (manager *InputManager) Run(){
 				}
 			}else{
 				manager.reloadAttempted = false
+			}
+
+			if pressed, present := manager.keyState[sdl.K_q]; (present && pressed) {
+				if oldPressed, oldPresent := manager.oldKeyState[sdl.K_q]; !oldPresent || !oldPressed {
+					manager.BuildWalls = !manager.BuildWalls
+				}
+			}
+
+			for k, v := range manager.keyState {
+				manager.oldKeyState[k] = v
 			}
 		}
 	}

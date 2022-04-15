@@ -80,10 +80,10 @@ var WeaponDamage map[pb.Weapon]map[pb.Rarity]uint32 = map[pb.Weapon]map[pb.Rarit
 }
 
 var WeaponInaccuracy map[pb.Weapon]float64 = map[pb.Weapon]float64{
-	pb.Weapon_PISTOL: 4.0,
-	pb.Weapon_PUMP_SHOTGUN: 10.0,
-	pb.Weapon_ASSAULT_RIFLE: 5.0,
-	pb.Weapon_SMG: 8.0,
+	pb.Weapon_PISTOL: 3.0,
+	pb.Weapon_PUMP_SHOTGUN: 15.0,
+	pb.Weapon_ASSAULT_RIFLE: 4.0,
+	pb.Weapon_SMG: 10.0,
 }
 
 var WeaponCooldowns map[pb.Weapon]uint32 = map[pb.Weapon]uint32{
@@ -143,6 +143,12 @@ var RarityColours map[pb.Rarity]color.RGBA = map[pb.Rarity]color.RGBA{
 		G: 170,
 		B: 31,
 	},
+}
+
+var MaterialColours map[pb.Material]color.RGBA = map[pb.Material]color.RGBA{
+	pb.Material_WOOD: color.RGBA{237, 226, 194, 0xFF},
+	pb.Material_BRICK: color.RGBA{230, 107, 83, 0xFF},
+	pb.Material_METAL: color.RGBA{187, 184, 194, 0xFF},
 }
 
 var WeaponDisplayNames = map[pb.Weapon]string{

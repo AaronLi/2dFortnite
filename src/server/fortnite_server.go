@@ -218,7 +218,7 @@ func (server *FortniteServer) updateWorld(){
 	// place players and walls in a super grid that holds all entities in a WALL_GRID_SIZExWALL_GRID_SIZE of the game world in each tile
 	// makes searching through much easier since we only have to look at adjacent grid squares
 	playerGridPositions := make(map[int64]map[int64]map[uint64]*pb.Player)
-	wallGridPositions := make(map[int64]map[int64]uint64)
+	wallGridPositions := make(map[int64]map[int64]map[pb.WallOrientation]uint64)
 
 	//log.Println("An item position", server.items[0].Pos)
 
@@ -247,7 +247,13 @@ func (server *FortniteServer) updateWorld(){
 	}
 
 	for k, wall := range server.walls {
-		wallGridPositions[wall.Y][wall.X] = k
+		if _, present := wallGridPositions[wall.Y]; !present {
+			wallGridPositions[wall.Y] = make(map[int64]map[pb.WallOrientation]uint64)
+		}
+		if _, present := wallGridPositions[wall.Y][wall.X]; !present {
+			wallGridPositions[wall.Y][wall.X] = make(map[pb.WallOrientation]uint64, 2)
+		}
+		wallGridPositions[wall.Y][wall.X][wall.Orientation] = k
 	}
 
 	// process actions
@@ -381,17 +387,19 @@ func (server *FortniteServer) updateWorld(){
 
 						if materialType == buildWallInfo.Material {
 							if resource.StackSize >= 10 {
-								wall_uuid, ok := wallGridPositions[buildWallInfo.Y][buildWallInfo.X]
+								if _, present := wallGridPositions[buildWallInfo.Y]; !present {
+									wallGridPositions[buildWallInfo.Y] = make(map[int64]map[pb.WallOrientation]uint64)
+								}
+								if _, present := wallGridPositions[buildWallInfo.Y][buildWallInfo.X]; !present {
+									wallGridPositions[buildWallInfo.Y][buildWallInfo.X] = make(map[pb.WallOrientation]uint64, 2)
+								}
+								_, ok := wallGridPositions[buildWallInfo.Y][buildWallInfo.X][buildWallInfo.Facing]
 								if !ok{
 									// wall doesn't exist, create it
-									wallGridPositions[buildWallInfo.Y][buildWallInfo.X] = server.buildWall(buildWallInfo, resource)
-									break
-								}else if server.walls[wall_uuid].Health < fortnite.WallHealth[server.walls[wall_uuid].Material]{
-									// wall exists but does not have full health
-									wallGridPositions[buildWallInfo.Y][buildWallInfo.X] = server.buildWall(buildWallInfo, resource)
+									log.Println("Build")
+									wallGridPositions[buildWallInfo.Y][buildWallInfo.X][buildWallInfo.Facing] = server.buildWall(buildWallInfo, resource)
 									break
 								}
-								resource.StackSize -= 10
 							}
 						}
 					}
@@ -447,14 +455,16 @@ func (server *FortniteServer) updateWorld(){
 									// item is ammo
 									if resource.GetAmmo() == fortnite.WeaponAmmoUsage[item.GetWeapon()] {
 										// correct ammo type for this weapon
-										reloadAmount := fortnite.WeaponAmmoLimits[item.GetWeapon()] - item.StackSize
-										if resource.StackSize < reloadAmount {
-											// player doesn't have enough ammo for full reload
-											reloadAmount = resource.StackSize
+										if resource.StackSize > 0 {
+											reloadAmount := fortnite.WeaponAmmoLimits[item.GetWeapon()] - item.StackSize
+											if resource.StackSize < reloadAmount {
+												// player doesn't have enough ammo for full reload
+												reloadAmount = resource.StackSize
+											}
+											item.StackSize += reloadAmount
+											resource.StackSize -= reloadAmount
+											item.Reload = fortnite.WeaponReloadTime[item.GetWeapon()]
 										}
-										item.StackSize += reloadAmount
-										resource.StackSize -= reloadAmount
-										item.Reload = fortnite.WeaponReloadTime[item.GetWeapon()]
 										break
 									}
 								}
@@ -527,16 +537,18 @@ func (server *FortniteServer) updateWorld(){
 						break
 					}
 				}
-				if wall_uuid, ok := wallGridPositions[check_y][check_x]; ok && !hitPlayer {
-					if server.collidesWall(projectileUUID, wall_uuid) {
-						wall := server.walls[wall_uuid]
-						if wall.Health > projectile.Damage {
-							wall.Health -= projectile.Damage
-						}else{
-							wall.Health = 0
-							walls_broken = append(walls_broken, wall_uuid)
+				for orientation := 0; orientation < 2; orientation++ {
+					if wall_uuid, ok := wallGridPositions[check_y][check_x][pb.WallOrientation(orientation)]; ok && !hitPlayer {
+						if server.collidesWall(projectileUUID, wall_uuid) {
+							wall := server.walls[wall_uuid]
+							if wall.Health > projectile.Damage {
+								wall.Health -= projectile.Damage
+							}else{
+								wall.Health = 0
+								walls_broken = append(walls_broken, wall_uuid)
+							}
+							hitWall = true
 						}
-						hitWall = true
 					}
 				}
 				if hitPlayer || hitWall {
@@ -638,6 +650,8 @@ func (server *FortniteServer) buildWall(buildWallInfo *pb.BuildWallRequest, reso
 		X: buildWallInfo.X,
 		Y: buildWallInfo.Y,
 		Material: buildWallInfo.Material,
+		Orientation: buildWallInfo.Facing,
+		Health: fortnite.WallHealth[buildWallInfo.Material],
 	}
 	server.walls[wallId] = &wall
 	resource.StackSize -= 10
@@ -645,7 +659,7 @@ func (server *FortniteServer) buildWall(buildWallInfo *pb.BuildWallRequest, reso
 }
 
 func (server *FortniteServer) spawnBullet(weaponInfo pb.Weapon, equippedItem *pb.InventorySlot, user *pb.Player) {
-	angle_offset := rand.Float64() * fortnite.WeaponInaccuracy[weaponInfo]
+	angle_offset := (rand.Float64() - 0.5) * fortnite.WeaponInaccuracy[weaponInfo]
 
 	projectile := pb.Projectile{
 		Id: rand.Uint64(),
@@ -732,7 +746,48 @@ func (server *FortniteServer) collidesWall(projectileUUID uint64, wallUUID uint6
 	//projectile := server.projectiles[projectileUUID]
 
 	// line (projectile + velocity) intersects line (wall)
-	panic("Not implemented")
+	projectile := server.projectiles[projectileUUID]
+	wall := server.walls[wallUUID]
+
+	// v1 = self.pos - L.p1
+	v1x := projectile.Position.X - (float64(wall.X) * fortnite.WALL_GRID_SIZE + fortnite.WALL_GRID_START_X)
+	v1y := projectile.Position.Y - (float64(wall.Y) * fortnite.WALL_GRID_SIZE + fortnite.WALL_GRID_START_Y)
+
+	// v2 = L.p2 - L.p1
+	var v2x, v2y float64
+
+	if wall.Orientation == pb.WallOrientation_HORIZONTAL {
+		v2x = fortnite.WALL_GRID_SIZE
+	}else{
+		v2y = fortnite.WALL_GRID_SIZE
+	}
+
+	// v3 = -self.direction[1], self.direction[0]
+	v30 := -projectile.Position.VY
+	v31 := projectile.Position.VX
+
+	v2dotv3 := v2x * v30 + v2y * v31
+
+	// t1 = cross(v2, v1) / dot(v2, v3)
+	t1 := (v2x * v1y - v2y * v1x) / v2dotv3
+
+	// t2 = dot(v1, v3) / dot(v2, v3)
+	t2 := (v1x * v30 + v1y * v31) / v2dotv3
+
+	if t1 >= 0.0 && t2 >= 0.0 && t2 <= 1.0{
+		intersectX := projectile.Position.X + t1 * projectile.Position.VX
+		intersectY := projectile.Position.Y + t1 * projectile.Position.VY
+
+		intersectXDirection := intersectX - projectile.Position.X
+		intersectYDirection := intersectY - projectile.Position.Y
+		intersectDistance := math.Hypot(intersectXDirection, intersectYDirection)
+
+		if intersectDistance < math.Hypot(projectile.Position.VX, projectile.Position.VY) {
+			return true
+		}
+		
+	}
+	return false
 }
 
 func (server *FortniteServer) populateWorld(){
@@ -771,6 +826,37 @@ func (server *FortniteServer) populateWorld(){
 		resource.StackSize = uint32(rand.Intn(20) + 10)
 		server.items[resource.Id] = &resource
 	}
+
+	for i := 0; i < 200; i++ {
+		// spawn materials
+		var worldItem pb.WorldItem
+		worldItem.Id = rand.Uint64()
+		worldItem.Pos = &pb.NetworkPosition{
+			X: fortnite.MIN_WORLD_X + rand.Float64() * float64(fortnite.MAX_WORLD_X - fortnite.MIN_WORLD_X),
+			Y: fortnite.MIN_WORLD_Y + rand.Float64() * float64(fortnite.MAX_WORLD_Y - fortnite.MIN_WORLD_Y),
+		}
+
+		worldItem.ItemType = pb.ItemType_MATERIAL
+
+		worldItem.ItemData = &pb.WorldItem_Material{
+			Material: server.intToMaterial(rand.Intn(3)),
+		}
+
+		worldItem.StackSize = uint32(rand.Intn(20) + 10)
+		server.items[worldItem.Id] = &worldItem
+	}
+}
+
+func (server *FortniteServer) intToMaterial(m int) pb.Material {
+	switch m {
+	case 0:
+		return pb.Material_WOOD
+	case 1:
+		return pb.Material_BRICK
+	case 2:
+		return pb.Material_METAL
+	}
+	return pb.Material_WOOD
 }
 
 func (server *FortniteServer) intToWeapon(w int) pb.Weapon {
