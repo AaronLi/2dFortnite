@@ -291,7 +291,35 @@ func (server *FortniteServer) updateWorld(){
 							}
 						}
 						case pb.ItemType_CONSUMABLE: // both consumables and weapons interact with the inventory the same way
-						fallthrough
+						pickedUp := false
+							// put item in first empty slot
+							for _, slot := range player.Inventory {
+								if slot.Item == pb.ItemType_NONE {
+									slot.Item = item.ItemType
+									slot.Rarity = item.ItemRarity
+									slot.ItemData = &pb.InventorySlot_Consumable{
+										Consumable: item.GetConsumable(),
+									}
+									slot.StackSize = item.StackSize
+									slot.Cooldown = 0
+									slot.Reload =  0
+									pickedUp = true
+									break
+								}
+							}
+							if !pickedUp {
+								// swap with item at currently selected slot
+								server.dropItemInventory(player.EquippedSlot, player.Id)
+								
+								player.Inventory[player.EquippedSlot].Item = item.ItemType
+								player.Inventory[player.EquippedSlot].Rarity = item.ItemRarity
+								player.Inventory[player.EquippedSlot].StackSize = item.StackSize
+								player.Inventory[player.EquippedSlot].ItemData = &pb.InventorySlot_Weapon{
+									Weapon: item.GetWeapon(),
+								}
+								player.Inventory[player.EquippedSlot].Cooldown = 0
+								player.Inventory[player.EquippedSlot].Reload =  0
+							}
 						case pb.ItemType_WEAPON:
 							pickedUp := false
 							// put item in first empty slot
@@ -407,8 +435,9 @@ func (server *FortniteServer) updateWorld(){
 			case pb.ActionType_USE_ITEM:
 				user := server.players[action.PlayerId.Id]
 				item := user.Inventory[user.EquippedSlot]
-				if item.Item == pb.ItemType_CONSUMABLE {
+				if item.Item == pb.ItemType_CONSUMABLE && item.Cooldown == 0 && item.StackSize > 0 {
 					consumableInfo := item.GetConsumable()
+					log.Println("Attempting to use", consumableInfo)
 					switch consumableInfo {
 					case pb.Consumable_BANDAGES:
 						if user.Health < 75 {
@@ -416,18 +445,24 @@ func (server *FortniteServer) updateWorld(){
 							if user.Health > 75 {
 								user.Health = 75
 							}
+							item.StackSize -= 1
+							item.Cooldown = 30
 						}
 					case pb.Consumable_MEDKIT:
 						user.Health += 100
 						if user.Health > 100 {
 							user.Health = 100
 						}
+						item.StackSize -= 1
+						item.Cooldown = 120
 					case pb.Consumable_SMALL_SHIELD_POTION:
 						if user.Shields < 50 {
 							user.Shields += 25
 							if user.Shields > 50 {
 								user.Shields = 50
 							}
+							item.StackSize -= 1
+							item.Cooldown = 30
 						}
 					case pb.Consumable_LARGE_SHIELD_POTION:
 						if user.Shields < 100 {
@@ -435,11 +470,15 @@ func (server *FortniteServer) updateWorld(){
 							if user.Shields > 100 {
 								user.Shields = 100
 							}
+							item.StackSize -= 1
+							item.Cooldown = 120
 						}
 					case pb.Consumable_CHUG_JUG:
 						if user.Health < 100 || user.Shields < 100{
 							user.Health = 100
 							user.Shields = 100
+							item.StackSize -= 1
+							item.Cooldown = 300
 						}
 					}
 				} else if item.Item == pb.ItemType_WEAPON {
@@ -524,15 +563,22 @@ func (server *FortniteServer) updateWorld(){
 				hitWall := false
 				for uuid, player := range playerGridPositions[check_y][check_x] {
 					if server.collidesPlayer(projectileUUID, uuid) {
-						log.Printf("Projectile at %.3f,%.3f moving at %.3f %.3f collided with player at %.3f,%.3f", projectile.Position.X, projectile.Position.Y, projectile.Position.VX, projectile.Position.VY, player.Position.X, player.Position.Y)
-						if player.Health > projectile.Damage {
-							log.Printf("Dealt %d to %d", projectile.Damage, uuid)
-							player.Health -= projectile.Damage
+						if player.Shields > projectile.Damage {
+							player.Shields -= projectile.Damage
 						}else{
-							log.Printf("Dealt %d to %d", player.Health, uuid)
-							player.Health = 0
-							deaths = append(deaths, uuid)
+							projectile.Damage -= player.Shields
+							player.Shields = 0
+
 						}
+						if player.Shields == 0 {
+							if player.Health > projectile.Damage{
+								player.Health -= projectile.Damage
+							}else{
+								player.Health = 0
+								deaths = append(deaths, uuid)
+							}
+						}
+					
 						hitPlayer = true
 						break
 					}
@@ -843,6 +889,25 @@ func (server *FortniteServer) populateWorld(){
 		}
 
 		worldItem.StackSize = uint32(rand.Intn(20) + 10)
+		server.items[worldItem.Id] = &worldItem
+	}
+
+	for i := 0; i< 100; i++ {
+		// spawn consumables
+		var worldItem pb.WorldItem
+		worldItem.Id = rand.Uint64()
+		worldItem.Pos = &pb.NetworkPosition{
+			X: fortnite.MIN_WORLD_X + rand.Float64() * float64(fortnite.MAX_WORLD_X - fortnite.MIN_WORLD_X),
+			Y: fortnite.MIN_WORLD_Y + rand.Float64() * float64(fortnite.MAX_WORLD_Y - fortnite.MIN_WORLD_Y),
+		}
+
+		worldItem.ItemType = pb.ItemType_CONSUMABLE
+
+		worldItem.ItemData = &pb.WorldItem_Consumable{
+			Consumable: pb.Consumable(rand.Intn(5)),
+		}
+
+		worldItem.StackSize = uint32(rand.Intn(2)+1)
 		server.items[worldItem.Id] = &worldItem
 	}
 }

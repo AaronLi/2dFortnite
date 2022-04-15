@@ -7,15 +7,21 @@ import (
 	"context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"flag"
 	pb "2dFortnite/proto"
 )
 
 func main() {
 	var exitcode int
 
+	var serverAddress = flag.String("server", "localhost:50051", "The server address in the format of host:port")
+
+	flag.Parse()
 	// connect to fortnite server over GRPC
+
+	log.Println("Connecting to", *serverAddress)
 	
-	conn, err := grpc.Dial("localhost:50051", grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.Dial(*serverAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	if err != nil {
 		panic(err)

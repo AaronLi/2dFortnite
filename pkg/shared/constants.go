@@ -157,3 +157,11 @@ var WeaponDisplayNames = map[pb.Weapon]string{
 	pb.Weapon_ASSAULT_RIFLE: "Assault Rifle",
 	pb.Weapon_SMG: "SMG",
 }
+
+var ConsumableDisplayNames = map[pb.Consumable]string{
+	pb.Consumable_BANDAGES: "Bandages",
+	pb.Consumable_MEDKIT: "Medkit",
+	pb.Consumable_SMALL_SHIELD_POTION: "Small Shield Potion",
+	pb.Consumable_LARGE_SHIELD_POTION: "Large Shield Potion",
+	pb.Consumable_CHUG_JUG: "Chug Jug",
+}

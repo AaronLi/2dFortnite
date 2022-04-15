@@ -206,6 +206,14 @@ func run(userInfo *pb.RegisterPlayerRequest, id uint64, client *pb.FortniteServi
 							W: 10,
 							H: 10,
 						}
+					case pb.ItemType_CONSUMABLE:
+						drawColor = ResourceColours[currentWorldState.Items[i].GetConsumable()]
+						itemRect = &sdl.Rect{
+							X: int32(WindowWidth/2 + currentWorldState.Items[i].Pos.X - currentWorldState.Player.Position.X) - 5,
+							Y: int32(WindowHeight/2 + currentWorldState.Items[i].Pos.Y - currentWorldState.Player.Position.Y) - 10,
+							W: 10,
+							H: 20,
+						}
 					}
 
 					renderer.SetDrawColor(drawColor.R, drawColor.G, drawColor.B, drawColor.A)
@@ -274,7 +282,16 @@ func run(userInfo *pb.RegisterPlayerRequest, id uint64, client *pb.FortniteServi
 						
 				case pb.ItemType_CONSUMABLE:
 					if oldMb == 0 {
-						// do thing
+						(*client).DoAction(context.Background(), &pb.DoActionRequest{
+							ActionType: pb.ActionType_USE_ITEM,
+							PlayerId: &pb.PlayerId{
+								Id: id,
+							},
+							ActionData: &pb.DoActionRequest_UseItem{
+								UseItem: &pb.UseItemRequest{
+								},
+							},
+						})
 					}
 			}
 		}
@@ -502,7 +519,22 @@ func run(userInfo *pb.RegisterPlayerRequest, id uint64, client *pb.FortniteServi
 				width := int32(bounds.Max.X)
 				height := int32(bounds.Max.Y)
 
-				renderer.Copy(drawTexture, &sdl.Rect{X: 0, Y: 0, W: width, H: height}, &sdl.Rect{X: WindowWidth - (55 * 5), Y: WindowHeight - 60 - height, W: width, H: height})
+				renderer.Copy(drawTexture, nil, &sdl.Rect{X: WindowWidth - (55 * 5), Y: WindowHeight - 60 - height, W: width, H: height})
+			})
+			wg.Done()
+		}()
+		} else if selectedSlot := currentWorldState.Player.Inventory[currentWorldState.Player.EquippedSlot]; selectedSlot.Item == pb.ItemType_CONSUMABLE && !inputManager.BuildWalls {
+			wg.Add(1)
+			go func(){sdl.Do(func() {
+				drawSurface, _ := uiFont.RenderUTF8Solid(fmt.Sprintf("%s %d", fortnite.ConsumableDisplayNames[selectedSlot.GetConsumable()], selectedSlot.StackSize), sdl.Color{R: 0xff, G: 0xff, B: 0xff, A: 0xff})
+				
+				drawTexture, _ := renderer.CreateTextureFromSurface(drawSurface)
+				bounds := drawSurface.Bounds()
+
+				width := int32(bounds.Max.X)
+				height := int32(bounds.Max.Y)
+
+				renderer.Copy(drawTexture, nil, &sdl.Rect{X: WindowWidth - (55 * 5), Y: WindowHeight - 60 - height, W: width, H: height})
 			})
 			wg.Done()
 		}()
