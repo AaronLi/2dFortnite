@@ -529,8 +529,55 @@ func (server *FortniteServer) updateWorld(){
 
 	// move players
 	for _, player := range server.players {
-		player.Position.X += player.Position.VX * (1.0 / fortnite.SERVER_TICKRATE)
-		player.Position.Y += player.Position.VY * (1.0 / fortnite.SERVER_TICKRATE)
+		// check walls around player
+		player_center_x := int64(player.Position.X/fortnite.WALL_GRID_SIZE)
+		player_center_y := int64(player.Position.Y/fortnite.WALL_GRID_SIZE)
+		hitSomething := false
+
+		for y_off := int64(-1); y_off <= 1; y_off++ {
+			for x_off := int64(-1); x_off <= 1; x_off++ {
+				check_y := player_center_y + y_off
+				check_x := player_center_x + x_off
+				for orientation := 0; orientation < 2; orientation++ {
+					if wall_uuid, present := wallGridPositions[check_y][check_x][pb.WallOrientation(orientation)]; present {
+						wall := server.walls[wall_uuid]
+						wallStartX := float64(wall.X*fortnite.WALL_GRID_SIZE + fortnite.WALL_GRID_START_X)
+						wallStartY := float64(wall.Y*fortnite.WALL_GRID_SIZE + fortnite.WALL_GRID_START_Y)
+						wallEndX := float64(wallStartX)
+						wallEndY := float64(wallStartY)
+						
+						if orientation == int(pb.WallOrientation_HORIZONTAL) {
+							wallEndX += fortnite.WALL_GRID_SIZE
+						} else {
+							wallEndY += fortnite.WALL_GRID_SIZE
+						}
+
+						if server.rayCollidesLine(
+							player.Position.X,
+							player.Position.Y,
+							player.Position.VX * (1.0 / fortnite.SERVER_TICKRATE),
+							player.Position.VY * (1.0 / fortnite.SERVER_TICKRATE),
+							wallStartX,
+							wallStartY,
+							wallEndX,
+							wallEndY){
+							hitSomething = true
+							break
+						}
+					}
+				}
+				if hitSomething {
+					break
+				}
+			}
+			if hitSomething {
+				break
+			}
+		}
+		if !hitSomething{
+			player.Position.X += player.Position.VX * (1.0 / fortnite.SERVER_TICKRATE)
+			player.Position.Y += player.Position.VY * (1.0 / fortnite.SERVER_TICKRATE)
+		}
 	}
 	// process player actions
 	//TODO
@@ -796,21 +843,37 @@ func (server *FortniteServer) collidesWall(projectileUUID uint64, wallUUID uint6
 	wall := server.walls[wallUUID]
 
 	// v1 = self.pos - L.p1
-	v1x := projectile.Position.X - (float64(wall.X) * fortnite.WALL_GRID_SIZE + fortnite.WALL_GRID_START_X)
-	v1y := projectile.Position.Y - (float64(wall.Y) * fortnite.WALL_GRID_SIZE + fortnite.WALL_GRID_START_Y)
+	wallX := (float64(wall.X) * fortnite.WALL_GRID_SIZE + fortnite.WALL_GRID_START_X)
+	wallY := (float64(wall.Y) * fortnite.WALL_GRID_SIZE + fortnite.WALL_GRID_START_Y)
 
-	// v2 = L.p2 - L.p1
-	var v2x, v2y float64
+	wallEndX := wallX
+	wallEndY := wallY
 
 	if wall.Orientation == pb.WallOrientation_HORIZONTAL {
-		v2x = fortnite.WALL_GRID_SIZE
+		wallEndX += fortnite.WALL_GRID_SIZE
 	}else{
-		v2y = fortnite.WALL_GRID_SIZE
+		wallEndY += fortnite.WALL_GRID_SIZE
 	}
+	return server.rayCollidesLine(projectile.Position.X, projectile.Position.Y, projectile.Position.VX, projectile.Position.VY, wallX, wallY, wallEndX, wallEndY)
+}
+
+func (server *FortniteServer) rayCollidesLine(rX, rY, rDx, rDy, l1x, l1y, l2x, l2y float64) bool{
+//wall := server.walls[wallUUID]
+	//projectile := server.projectiles[projectileUUID]
+
+	// line (projectile + velocity) intersects line (wall)
+
+	// v1 = self.pos - L.p1
+	v1x := rX - l1x
+	v1y := rY - l1y
+
+	// v2 = L.p2 - L.p1
+	v2x := l2x - l1x
+	v2y := l2y - l1y
 
 	// v3 = -self.direction[1], self.direction[0]
-	v30 := -projectile.Position.VY
-	v31 := projectile.Position.VX
+	v30 := -rDy
+	v31 := rDx
 
 	v2dotv3 := v2x * v30 + v2y * v31
 
@@ -821,14 +884,14 @@ func (server *FortniteServer) collidesWall(projectileUUID uint64, wallUUID uint6
 	t2 := (v1x * v30 + v1y * v31) / v2dotv3
 
 	if t1 >= 0.0 && t2 >= 0.0 && t2 <= 1.0{
-		intersectX := projectile.Position.X + t1 * projectile.Position.VX
-		intersectY := projectile.Position.Y + t1 * projectile.Position.VY
+		intersectX := rX + t1 * rDx
+		intersectY := rY + t1 * rDy
 
-		intersectXDirection := intersectX - projectile.Position.X
-		intersectYDirection := intersectY - projectile.Position.Y
+		intersectXDirection := intersectX - rX
+		intersectYDirection := intersectY - rY
 		intersectDistance := math.Hypot(intersectXDirection, intersectYDirection)
 
-		if intersectDistance < math.Hypot(projectile.Position.VX, projectile.Position.VY) {
+		if intersectDistance < math.Hypot(rDx, rDy) {
 			return true
 		}
 		
