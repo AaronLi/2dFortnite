@@ -127,6 +127,7 @@ enum Ammo {
     SHOTGUN_AMMO = 0;
     ASSAULT_RIFLE_AMMO = 1;
     PISTOL_AMMO = 3;
+    SNIPER_AMMO = 4;
 }
 
 enum Weapon {
@@ -134,6 +135,7 @@ enum Weapon {
     ASSAULT_RIFLE = 1;
     SMG = 2;
     PISTOL = 3;
+    SNIPER_RIFLE = 4;
 }
 
 enum Rarity{

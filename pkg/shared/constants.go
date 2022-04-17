@@ -36,16 +36,16 @@ var WeaponAmmoLimits = map[pb.Weapon]uint32{
 	pb.Weapon_PUMP_SHOTGUN: 5,
 	pb.Weapon_ASSAULT_RIFLE: 30,
 	pb.Weapon_SMG: 30,
+	pb.Weapon_SNIPER_RIFLE: 1,
 }
 
-type ProjectileSpeed float64
-
-const (
-	PISTOL_PROJECTILE_SPEED ProjectileSpeed = 10.0
-	SHOTGUN_PROJECTILE_SPEED = 15.0
-	ASSAULT_RIFLE_PROJECTILE_SPEED = 18.0
-	SMG_PROJECTILE_SPEED = 15.0
-)
+var WeaponProjectileSpeed = map[pb.Weapon]float64{
+	pb.Weapon_PISTOL: 10.0,
+	pb.Weapon_PUMP_SHOTGUN: 15.0,
+	pb.Weapon_ASSAULT_RIFLE: 18.0,
+	pb.Weapon_SMG: 15.0,
+	pb.Weapon_SNIPER_RIFLE: 100.0,
+}
 
 
 var WeaponDamage map[pb.Weapon]map[pb.Rarity]uint32 = map[pb.Weapon]map[pb.Rarity]uint32{
@@ -77,6 +77,14 @@ var WeaponDamage map[pb.Weapon]map[pb.Rarity]uint32 = map[pb.Weapon]map[pb.Rarit
 		pb.Rarity_EPIC: 19,
 		pb.Rarity_LEGENDARY: 20,
 	},
+
+	pb.Weapon_SNIPER_RIFLE: {
+		pb.Rarity_COMMON: 80,
+		pb.Rarity_UNCOMMON: 90,
+		pb.Rarity_RARE: 100,
+		pb.Rarity_EPIC: 120,
+		pb.Rarity_LEGENDARY: 150,
+	},
 }
 
 var WeaponInaccuracy map[pb.Weapon]float64 = map[pb.Weapon]float64{
@@ -84,6 +92,7 @@ var WeaponInaccuracy map[pb.Weapon]float64 = map[pb.Weapon]float64{
 	pb.Weapon_PUMP_SHOTGUN: 15.0,
 	pb.Weapon_ASSAULT_RIFLE: 4.0,
 	pb.Weapon_SMG: 10.0,
+	pb.Weapon_SNIPER_RIFLE: 0.5,
 }
 
 var WeaponCooldowns map[pb.Weapon]uint32 = map[pb.Weapon]uint32{
@@ -91,6 +100,7 @@ var WeaponCooldowns map[pb.Weapon]uint32 = map[pb.Weapon]uint32{
 	pb.Weapon_PUMP_SHOTGUN: 30,
 	pb.Weapon_ASSAULT_RIFLE: 4,
 	pb.Weapon_SMG: 1,
+	pb.Weapon_SNIPER_RIFLE: 1,
 }
 
 var WallHealth map[pb.Material]uint32 = map[pb.Material]uint32{
@@ -104,6 +114,7 @@ var WeaponAmmoUsage = map[pb.Weapon]pb.Ammo {
 	pb.Weapon_PUMP_SHOTGUN: pb.Ammo_SHOTGUN_AMMO,
 	pb.Weapon_ASSAULT_RIFLE: pb.Ammo_ASSAULT_RIFLE_AMMO,
 	pb.Weapon_SMG: pb.Ammo_PISTOL_AMMO,	
+	pb.Weapon_SNIPER_RIFLE: pb.Ammo_SNIPER_AMMO,
 }
 
 var WeaponReloadTime map[pb.Weapon]uint32 = map[pb.Weapon]uint32{
@@ -111,6 +122,7 @@ var WeaponReloadTime map[pb.Weapon]uint32 = map[pb.Weapon]uint32{
 	pb.Weapon_PUMP_SHOTGUN: uint32(math.Round(5.0 * SERVER_TICKRATE)),
 	pb.Weapon_ASSAULT_RIFLE: uint32(math.Round(2.5 * SERVER_TICKRATE)),
 	pb.Weapon_SMG: uint32(math.Round(2.3 * SERVER_TICKRATE)),
+	pb.Weapon_SNIPER_RIFLE: uint32(math.Round(5 * SERVER_TICKRATE)),
 }
 
 var RarityColours map[pb.Rarity]color.RGBA = map[pb.Rarity]color.RGBA{
@@ -156,6 +168,7 @@ var WeaponDisplayNames = map[pb.Weapon]string{
 	pb.Weapon_PUMP_SHOTGUN: "Shotgun",
 	pb.Weapon_ASSAULT_RIFLE: "Assault Rifle",
 	pb.Weapon_SMG: "SMG",
+	pb.Weapon_SNIPER_RIFLE: "Sniper Rifle",
 }
 
 var ConsumableDisplayNames = map[pb.Consumable]string{

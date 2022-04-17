@@ -101,6 +101,13 @@ func (s *FortniteServer) RegisterPlayer(ctx context.Context, in *pb.RegisterPlay
 		},
 	})
 
+	player.Resources = append(player.Resources, &pb.ResourceStack{
+		Item: pb.ItemType_AMMO,
+		ItemData: &pb.ResourceStack_Ammo{
+			Ammo: pb.Ammo_SNIPER_AMMO,
+		},
+	})
+
 	s.players[player.Id] = &player
 
 	log.Printf("Player %s(%d) registered", player.Name, player.Id)
@@ -390,15 +397,11 @@ func (server *FortniteServer) updateWorld(){
 					if equippedItem.Cooldown == 0 && equippedItem.Reload == 0 && equippedItem.StackSize > 0{
 						weaponInfo := equippedItem.GetWeapon()
 						switch weaponInfo {
-						case pb.Weapon_PISTOL:
-							server.spawnBullet(weaponInfo, equippedItem, player)
 						case pb.Weapon_PUMP_SHOTGUN:
 							for i := 0; i < 10; i++ {
 								server.spawnBullet(weaponInfo, equippedItem, player)
 							}
-						case pb.Weapon_SMG:
-							server.spawnBullet(weaponInfo, equippedItem, player)
-						case pb.Weapon_ASSAULT_RIFLE:
+						default:
 							server.spawnBullet(weaponInfo, equippedItem, player)
 						}
 						equippedItem.StackSize -= 1
@@ -480,6 +483,9 @@ func (server *FortniteServer) updateWorld(){
 							item.StackSize -= 1
 							item.Cooldown = 300
 						}
+					}
+					if item.StackSize == 0{
+						user.Inventory[user.EquippedSlot].Item = pb.ItemType_NONE
 					}
 				} else if item.Item == pb.ItemType_WEAPON {
 					// check if weapon is fully loaded
@@ -759,8 +765,8 @@ func (server *FortniteServer) spawnBullet(weaponInfo pb.Weapon, equippedItem *pb
 		Position: &pb.NetworkPosition{
 			X: user.Position.X,
 			Y: user.Position.Y,
-			VX: math.Cos((user.Rotation + angle_offset) * math.Pi / 180) * float64(fortnite.PISTOL_PROJECTILE_SPEED),
-			VY: math.Sin((user.Rotation + angle_offset) * math.Pi / 180) * float64(fortnite.PISTOL_PROJECTILE_SPEED),
+			VX: math.Cos((user.Rotation + angle_offset) * math.Pi / 180) * float64(fortnite.WeaponProjectileSpeed[weaponInfo]),
+			VY: math.Sin((user.Rotation + angle_offset) * math.Pi / 180) * float64(fortnite.WeaponProjectileSpeed[weaponInfo]),
 		},
 		Damage: fortnite.WeaponDamage[weaponInfo][equippedItem.Rarity],
 		Life: 300,
@@ -912,7 +918,7 @@ func (server *FortniteServer) populateWorld(){
 		worldItem.ItemType = pb.ItemType_WEAPON
 
 		worldItem.ItemData = &pb.WorldItem_Weapon{
-			Weapon: server.intToWeapon(rand.Intn(4)),
+			Weapon: pb.Weapon(rand.Intn(5)),
 		}
 		worldItem.ItemRarity = server.intToRarity(rand.Intn(4))
 
@@ -985,20 +991,6 @@ func (server *FortniteServer) intToMaterial(m int) pb.Material {
 		return pb.Material_METAL
 	}
 	return pb.Material_WOOD
-}
-
-func (server *FortniteServer) intToWeapon(w int) pb.Weapon {
-	switch w {
-	case 0:
-		return pb.Weapon_ASSAULT_RIFLE
-	case 1:
-		return pb.Weapon_PISTOL
-	case 2:
-		return pb.Weapon_PUMP_SHOTGUN
-	case 3:
-		return pb.Weapon_SMG
-	}
-	return pb.Weapon_PISTOL
 }
 
 func (server *FortniteServer) intToRarity(r int) pb.Rarity {
